@@ -1,0 +1,262 @@
+version: "3.8"
+
+# ============================================================
+#  Dynamic Reporting System — Full Stack
+#  Run: docker compose down -v && docker compose up -d
+#  Frontend : http://localhost:3000
+#  Kafka UI : http://localhost:8080
+#  Solr     : http://localhost:8983
+#  PHP API  : http://localhost:8000
+# ============================================================
+
+services:
+
+  # ──────────────────────────────────────────
+  #  ZOOKEEPER
+  # ──────────────────────────────────────────
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: zookeeper
+    restart: always
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zk_data:/var/lib/zookeeper/data
+      - zk_log:/var/lib/zookeeper/log
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo ruok | nc localhost 2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ──────────────────────────────────────────
+  #  KAFKA BROKER
+  # ──────────────────────────────────────────
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka
+    restart: always
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_DELETE_TOPIC_ENABLE: "true"
+      KAFKA_NUM_PARTITIONS: 3
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_MESSAGE_MAX_BYTES: "10485760"
+      KAFKA_REPLICA_FETCH_MAX_BYTES: "10485760"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+  # ──────────────────────────────────────────
+  #  KAFKA TOPIC AUTO-CREATOR
+  # ──────────────────────────────────────────
+  kafka-init:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-c"]
+    command: |
+      "
+      echo 'Waiting for Kafka...'
+      kafka-topics --bootstrap-server kafka:9092 --list
+      kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic solr-data --partitions 3 --replication-factor 1 --config retention.ms=604800000 --config max.message.bytes=10485760
+      kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic solr-data-dlq --partitions 1 --replication-factor 1
+      kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic report_data_topic --partitions 3 --replication-factor 1
+      echo 'Topics ready:'
+      kafka-topics --bootstrap-server kafka:9092 --list
+      "
+    restart: "no"
+
+  # ──────────────────────────────────────────
+  #  KAFKA UI
+  # ──────────────────────────────────────────
+  kafbat-ui:
+    image: ghcr.io/kafbat/kafka-ui:latest
+    container_name: kafbat-ui
+    restart: always
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: my-kafka
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+
+  # ──────────────────────────────────────────
+  #  SOLR
+  #  ✅ FIX: use `solr-precreate csvcore` as the command
+  #     This uses Solr's built-in entrypoint to create the core
+  #     on first boot — no missing configset problem.
+  #     The healthcheck hits /solr/ (not /solr/admin/ping which needs a core)
+  # ──────────────────────────────────────────
+  solr:
+    image: solr:9
+    container_name: solr
+    restart: always
+    ports:
+      - "8983:8983"
+    volumes:
+      - solr_data:/var/solr
+    environment:
+      SOLR_JAVA_MEM: "-Xms1g -Xmx2g"
+    # ✅ This single command creates csvcore automatically on first run
+    command: solr-precreate csvcore
+    healthcheck:
+      # ✅ Check the core directly — it exists because solr-precreate made it
+      test: ["CMD-SHELL", "curl -sf http://localhost:8983/solr/csvcore/admin/ping || exit 1"]
+      interval: 20s
+      timeout: 15s
+      retries: 20
+      start_period: 90s
+
+  # ──────────────────────────────────────────
+  #  SOLR SCHEMA SETUP (runs after Solr is healthy)
+  #  Adds dynamic fields for auto-typed CSV columns
+  # ──────────────────────────────────────────
+  solr-init:
+    image: curlimages/curl:latest
+    container_name: solr-init
+    depends_on:
+      solr:
+        condition: service_healthy
+    restart: "no"
+    entrypoint: ["/bin/sh", "-c"]
+    command: |
+      "
+      echo 'Solr is up. Adding dynamic field schema...'
+
+      curl -s -X POST 'http://solr:8983/solr/csvcore/schema' \
+        -H 'Content-Type: application/json' \
+        -d '{
+          \"add-dynamic-field\": [
+            {\"name\":\"*_s\",  \"type\":\"string\",       \"indexed\":true, \"stored\":true, \"docValues\":true},
+            {\"name\":\"*_i\",  \"type\":\"pint\",         \"indexed\":true, \"stored\":true, \"docValues\":true},
+            {\"name\":\"*_f\",  \"type\":\"pfloat\",       \"indexed\":true, \"stored\":true, \"docValues\":true},
+            {\"name\":\"*_b\",  \"type\":\"boolean\",      \"indexed\":true, \"stored\":true},
+            {\"name\":\"*_dt\", \"type\":\"pdate\",        \"indexed\":true, \"stored\":true, \"docValues\":true},
+            {\"name\":\"*_txt\",\"type\":\"text_general\", \"indexed\":true, \"stored\":true}
+          ],
+          \"add-copy-field\": [
+            {\"source\": \"*_s\",   \"dest\": \"_text_\"},
+            {\"source\": \"*_txt\", \"dest\": \"_text_\"}
+          ]
+        }'
+
+      echo 'Schema done! Solr csvcore is fully ready.'
+      "
+
+  # ──────────────────────────────────────────
+  #  PHP API SERVER
+  # ──────────────────────────────────────────
+  php:
+    build:
+      context: ./kafka
+      dockerfile: Dockerfile
+    container_name: php-kafka
+    restart: always
+    depends_on:
+      kafka:
+        condition: service_healthy
+      solr-init:
+        condition: service_completed_successfully
+    volumes:
+      - ./kafka:/app
+      - php_vendor:/app/vendor
+      - ./sample-data:/app/csv
+    working_dir: /app
+    command: ["php", "-d", "memory_limit=512M", "-S", "0.0.0.0:8000", "-t", "/app/api"]
+    ports:
+      - "8000:8000"
+    environment:
+      KAFKA_BROKER: "kafka:9092"
+      SOLR_URL: "http://solr:8983/solr/csvcore"
+      KAFKA_TOPIC: "solr-data"
+      BATCH_SIZE: "1000"
+      REDIS_HOST: "redis"
+      REDIS_PORT: "6379"
+      CACHE_TTL: "60"
+
+  # ──────────────────────────────────────────
+  #  KAFKA CONSUMER
+  # ──────────────────────────────────────────
+  consumer:
+    build:
+      context: ./kafka
+      dockerfile: Dockerfile
+    container_name: kafka-consumer
+    restart: always
+    depends_on:
+      kafka:
+        condition: service_healthy
+      solr-init:
+        condition: service_completed_successfully
+    volumes:
+      - ./kafka:/app
+      - php_vendor:/app/vendor
+    working_dir: /app
+    command: ["php", "-d", "memory_limit=512M", "consumer.php"]
+    environment:
+      KAFKA_BROKER: "kafka:9092"
+      SOLR_URL: "http://solr:8983/solr/csvcore"
+      KAFKA_TOPIC: "solr-data"
+      BATCH_SIZE: "1000"
+      COMMIT_WITHIN: "5000"
+
+  # ──────────────────────────────────────────
+  #  REACT FRONTEND
+  # ──────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: frontend
+    restart: always
+    ports:
+      - "3000:80"
+    depends_on:
+      - php
+
+  # ──────────────────────────────────────────
+  #  REDIS
+  # ──────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+
+volumes:
+  kafka_data:
+  zk_data:
+  zk_log:
+  solr_data:
+  redis_data:
+  php_vendor:
