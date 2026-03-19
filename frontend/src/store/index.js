@@ -105,12 +105,64 @@ export const useStore = create((set, get) => {
 
       const activeFilters = s.filters.filter(isFilterActive)
 
+      // Ensure we query ALL underlying fields that share the same label (e.g. price_i AND price_f)
+      let queryFields = s.selectedColumns.length ? [...s.selectedColumns] : ['*']
+      if (queryFields[0] !== '*') {
+        const expanded = new Set(queryFields)
+        s.selectedColumns.forEach(c => {
+          const def = s.schema.find(sf => sf.name === c)
+          if (def) {
+            s.schema.filter(sf => sf.label === def.label).forEach(sf => expanded.add(sf.name))
+          }
+        })
+        queryFields = Array.from(expanded)
+      }
+
+      // Automatically translate filters on "merged" columns into native OR nested groups
+      const transformFilter = (f) => {
+        if (f.type === 'nested') {
+          return { ...f, children: (f.children || []).map(transformFilter) }
+        }
+        const def = s.schema.find(sf => sf.name === f.field)
+        if (def) {
+          const groupNames = s.schema.filter(sf => sf.label === def.label).map(sf => sf.name)
+          if (groupNames.length > 1) {
+            return {
+              type: 'nested',
+              op: f.op || 'AND',
+              groupOp: 'OR',
+              children: groupNames.map(g => ({ ...f, field: g, op: 'OR' }))
+            }
+          }
+        }
+        return f
+      }
+
+      const transformedFilters = activeFilters.map(transformFilter)
+
+      // Transform generic sort to def(col1, col2) if merged
+      let finalSort = s.sort
+      if (finalSort && !finalSort.startsWith('score')) {
+        const [sField, sDir] = finalSort.split(' ')
+        const def = s.schema.find(sf => sf.name === sField)
+        if (def) {
+          const groupNames = s.schema.filter(sf => sf.label === def.label).map(sf => sf.name)
+          if (groupNames.length > 1) {
+            let sortFunc = groupNames[groupNames.length - 1]
+            for (let i = groupNames.length - 2; i >= 0; i--) {
+              sortFunc = `def(${groupNames[i]},${sortFunc})`
+            }
+            finalSort = `${sortFunc} ${sDir}`
+          }
+        }
+      }
+
       const body = {
         rows:        s.rows,
         page:        s.page,
-        sort:        s.sort,
-        fields:      s.selectedColumns.length ? s.selectedColumns : ['*'],
-        filters:     activeFilters,
+        sort:        finalSort,
+        fields:      queryFields,
+        filters:     transformedFilters,
         q:           s.globalSearch?.trim() ? `*${s.globalSearch.trim()}*` : '*:*',
         dateCompare: s.dateCompare,
       }

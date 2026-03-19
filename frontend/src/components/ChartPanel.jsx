@@ -7,7 +7,7 @@ import {
 } from 'recharts'
 import { BarChart2, TrendingUp, PieChart as PieIcon, Download, Layers } from 'lucide-react'
 
-const COLORS = ['#2563eb','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#f97316','#ec4899','#14b8a6','#a855f7']
+const COLORS = ['#60a5fa', '#34d399', '#fbbf24', '#f87171', '#c084fc', '#22d3ee', '#f472b6', '#a3e635', '#2dd4bf', '#fb7185']
 
 const CHART_TYPES = [
   { id: 'bar',      label: 'Bar',      icon: <BarChart2 size={13} /> },
@@ -17,9 +17,9 @@ const CHART_TYPES = [
 ]
 
 const tooltipStyle = {
-  background: '#1e293b', border: '1px solid #334155',
-  borderRadius: 8, color: '#e2e8f0', fontSize: 12,
-  boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+  background: '#09090b', border: '1px solid #27272a',
+  borderRadius: 8, color: '#f8fafc', fontSize: 12,
+  boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
 }
 
 export default function ChartPanel() {
@@ -204,7 +204,7 @@ export default function ChartPanel() {
                 <Bar dataKey={yKey} name={yLabel} radius={[4, 4, 0, 0]}>
                   {chartData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                 </Bar>
-                <Brush dataKey="name" height={18} stroke="#e2e8f0" fill="#f8fafc" travellerWidth={5} />
+                <Brush dataKey="name" height={18} stroke="#27272a" fill="#18181b" travellerWidth={5} />
               </BarChart>
             ) : chartType === 'line' ? (
               <LineChart data={chartData} onClick={drillDown}>
@@ -216,7 +216,7 @@ export default function ChartPanel() {
                 <Line type="monotone" dataKey={yKey} name={yLabel}
                   stroke={COLORS[0]} strokeWidth={2.5}
                   dot={{ fill: COLORS[0], r: 3 }} activeDot={{ r: 6 }} />
-                <Brush dataKey="name" height={18} stroke="#e2e8f0" fill="#f8fafc" travellerWidth={5} />
+                <Brush dataKey="name" height={18} stroke="#27272a" fill="#18181b" travellerWidth={5} />
               </LineChart>
             ) : chartType === 'multiaxis' ? (
               <ComposedChart data={chartData} onClick={drillDown}>
@@ -234,7 +234,7 @@ export default function ChartPanel() {
                     stroke="#f59e0b" strokeWidth={2.5} dot={{ fill: '#f59e0b', r: 3 }} />
                 )}
                 <Area yAxisId="left" type="monotone" dataKey={yKey} fill={COLORS[0]} stroke="none" opacity={0.08} />
-                <Brush dataKey="name" height={18} stroke="#e2e8f0" fill="#f8fafc" travellerWidth={5} />
+                <Brush dataKey="name" height={18} stroke="#27272a" fill="#18181b" travellerWidth={5} />
               </ComposedChart>
             ) : (
               <PieChart>

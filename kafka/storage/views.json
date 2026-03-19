@@ -1,1 +1,180 @@
-[]
+[
+    {
+        "id": "view_69bbcad9084d0",
+        "name": "product_id 10,749 to 38,191 with type=simple",
+        "columns": [
+            "product_id_i",
+            "parent_sku_s",
+            "Product_Name_s",
+            "Price_i",
+            "Map_Price_i",
+            "Type_s",
+            "Brand_Name_s",
+            "AFA_SKU_s"
+        ],
+        "filters": [
+            {
+                "type": "nested",
+                "op": "AND",
+                "groupOp": "AND",
+                "children": [
+                    {
+                        "field": "product_id_i",
+                        "type": "range",
+                        "value": "",
+                        "op": "AND",
+                        "min": "10749",
+                        "max": "38191",
+                        "from": "",
+                        "to": ""
+                    },
+                    {
+                        "field": "Type_s",
+                        "type": "text",
+                        "value": "simple",
+                        "op": "AND",
+                        "min": "",
+                        "max": "",
+                        "from": "",
+                        "to": ""
+                    }
+                ]
+            }
+        ],
+        "sort": "score desc",
+        "created_at": "2026-03-19T10:07:21+00:00",
+        "is_default": false,
+        "version": 1
+    },
+    {
+        "id": "view_69bbccf43c27a",
+        "name": "price = 14,847.5",
+        "columns": [
+            "product_id_i",
+            "parent_sku_s",
+            "Product_Name_s",
+            "Price_f",
+            "Type_s",
+            "Brand_Name_s",
+            "AFA_SKU_s",
+            "AFA_URL_s",
+            "Quantity_i"
+        ],
+        "filters": [
+            {
+                "field": "Price_f",
+                "type": "range",
+                "value": "",
+                "op": "AND",
+                "min": "14847.5",
+                "max": "14847.5",
+                "from": "",
+                "to": ""
+            }
+        ],
+        "sort": "Price_f desc",
+        "created_at": "2026-03-19T10:16:20+00:00",
+        "is_default": false,
+        "version": 1
+    },
+    {
+        "id": "view_69bbd15a0b163",
+        "name": "price > 500 && type=bundle",
+        "columns": [
+            "product_id_i",
+            "parent_sku_s",
+            "Product_Name_s",
+            "Price_f",
+            "Type_s",
+            "Brand_Name_s",
+            "AFA_SKU_s",
+            "AFA_URL_s"
+        ],
+        "filters": [
+            {
+                "type": "nested",
+                "op": "AND",
+                "groupOp": "AND",
+                "children": [
+                    {
+                        "field": "Price_f",
+                        "type": "range",
+                        "value": "",
+                        "op": "AND",
+                        "min": "500",
+                        "max": "",
+                        "from": "",
+                        "to": ""
+                    },
+                    {
+                        "field": "Type_s",
+                        "type": "text",
+                        "value": "bundle",
+                        "op": "AND",
+                        "min": "",
+                        "max": "",
+                        "from": "",
+                        "to": ""
+                    },
+                    {
+                        "field": "",
+                        "type": "text",
+                        "value": "",
+                        "op": "AND"
+                    }
+                ]
+            }
+        ],
+        "sort": "Price_f asc",
+        "created_at": "2026-03-19T10:35:06+00:00",
+        "is_default": false,
+        "version": 1
+    },
+    {
+        "id": "view_69bbd27029345",
+        "name": "WM.csv file && type=simple",
+        "columns": [
+            "product_id_i",
+            "parent_sku_s",
+            "Product_Name_s",
+            "Price_f",
+            "Type_s",
+            "Brand_Name_s",
+            "AFA_SKU_s",
+            "AFA_URL_s"
+        ],
+        "filters": [
+            {
+                "type": "nested",
+                "op": "AND",
+                "groupOp": "AND",
+                "children": [
+                    {
+                        "field": "source_file_s",
+                        "type": "text",
+                        "value": "WM.csv",
+                        "op": "AND",
+                        "min": "",
+                        "max": "",
+                        "from": "",
+                        "to": ""
+                    },
+                    {
+                        "field": "Type_s",
+                        "type": "text",
+                        "value": "simple",
+                        "op": "AND",
+                        "min": "",
+                        "max": "",
+                        "from": "",
+                        "to": ""
+                    }
+                ]
+            }
+        ],
+        "sort": "AFA_SKU_s desc",
+        "created_at": "2026-03-19T10:39:44+00:00",
+        "is_default": false,
+        "version": 1
+    }
+]

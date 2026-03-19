@@ -1,21 +1,21 @@
 :root {
-  /* ── Color System: Professional Enterprise Clean ── */
-  --bg: #f8fafc;
-  --bg2: #ffffff;
-  --bg3: #f1f5f9;
-  --bg4: #e2e8f0;
+  /* ── Color System: True Black AMOLED ── */
+  --bg: #000000;       /* Pure Black background */
+  --bg2: #09090b;      /* Zinc 950 - Cards/Surfaces */
+  --bg3: #18181b;      /* Zinc 900 - Hover states / active elements */
+  --bg4: #27272a;      /* Zinc 800 - Borders/dividers */
   
-  --border: #e2e8f0;
-  --border2: #cbd5e1;
-  --border-glow: rgba(59, 130, 246, 0.2);
+  --border: #1f1f22;      /* Subtle inner border */
+  --border2: #27272a;     /* Stronger border */
+  --border-glow: rgba(99, 102, 241, 0.25);
 
-  --text: #0f172a;
-  --text2: #334155;
-  --text3: #64748b;
+  --text: #f8fafc;        /* Slate 50 - Primary text */
+  --text2: #94a3b8;       /* Slate 400 - Secondary text */
+  --text3: #64748b;       /* Slate 500 - Muted text */
 
-  --accent: #2563eb;
-  --accent2: #1d4ed8;
-  --accent-light: #eff6ff;
+  --accent: #6366f1;         /* Indigo 500 */
+  --accent2: #818cf8;        /* Indigo 400 */
+  --accent-light: rgba(99, 102, 241, 0.15); /* Subdued indigo */
 
   --success: #10b981;
   --error: #ef4444;
@@ -37,6 +37,17 @@
   box-sizing: border-box;
   margin: 0; padding: 0;
 }
+
+input, select, textarea, button, option {
+  font-family: inherit;
+  color: inherit;
+}
+option {
+  background: var(--bg2);
+  color: var(--text);
+}
+
+h1, h2, h3, h4, p { margin: 0; }
 
 body {
   font-family: var(--font-sans);
@@ -62,8 +73,12 @@ body {
   border: 1px solid var(--border2);
   background: var(--bg2);
   color: var(--text2);
-  transition: all 0.15s ease-in-out;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   box-shadow: var(--shadow-sm);
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(0.96);
 }
 
 .btn:hover:not(:disabled) {
@@ -81,7 +96,8 @@ body {
   background: var(--accent2);
   border-color: var(--accent2);
   color: white;
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
+  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.4);
+  transform: translateY(-1px);
 }
 
 .btn-danger {

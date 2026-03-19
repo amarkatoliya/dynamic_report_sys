@@ -141,29 +141,32 @@ function handleSchema(string $solrUrl): void
 {
     $excludedFields = ['id', 'score', '_version_', '_root_', '_nest_path_', '_nest_parent_'];
 
-    $cKey = 'schema:v1';
+    $cKey = 'schema:v3';  // bumped — forces cache refresh
     $cached = cacheGet($cKey);
     if ($cached) { json($cached); return; }
 
-    $sampleResp = solrGet($solrUrl . '/select?q=*:*&rows=1&wt=json');
+    // Sample 20 docs to collect ALL possible field names (some docs may have empty cols)
+    $sampleResp = solrGet($solrUrl . '/select?q=*:*&rows=20&wt=json');
     $sampleData = json_decode($sampleResp, true);
-    $sampleDoc  = $sampleData['response']['docs'][0] ?? [];
+    $sampleDocs = $sampleData['response']['docs'] ?? [];
 
     $fields = [];
     $seen   = [];
 
-    foreach ($sampleDoc as $key => $val) {
-        if (str_starts_with($key, '_')) continue;
-        if (in_array($key, $excludedFields)) continue;
-        if (isset($seen[$key])) continue;
-        $seen[$key] = true;
-        $fields[] = [
-            'name'       => $key,
-            'label'      => formatLabel($key),
-            'type'       => inferType($key),
-            'sortable'   => true,
-            'filterable' => true,
-        ];
+    foreach ($sampleDocs as $sampleDoc) {
+        foreach ($sampleDoc as $key => $val) {
+            if (str_starts_with($key, '_')) continue;
+            if (in_array($key, $excludedFields)) continue;
+            if (isset($seen[$key])) continue;
+            $seen[$key] = true;
+            $fields[] = [
+                'name'       => $key,
+                'label'      => formatLabel($key),
+                'type'       => inferType($key),
+                'sortable'   => true,
+                'filterable' => true,
+            ];
+        }
     }
 
     if (empty($fields)) {
@@ -477,11 +480,21 @@ function executeDateCompare(string $solrUrl, array $params, array $dateCompare):
 // ── Solr Helpers ───────────────────────────────────────────────────────────────
 function solrRequest(string $url, array $params): string
 {
+    $qs = [];
+    foreach ($params as $k => $v) {
+        if (is_array($v)) {
+            foreach ($v as $val) {
+                $qs[] = rawurlencode($k) . '=' . rawurlencode((string)$val);
+            }
+        } else {
+            $qs[] = rawurlencode($k) . '=' . rawurlencode((string)$v);
+        }
+    }
     $ch = curl_init();
     curl_setopt_array($ch, [
         CURLOPT_URL            => $url,
         CURLOPT_POST           => true,
-        CURLOPT_POSTFIELDS     => http_build_query($params, '', '&', PHP_QUERY_RFC3986),
+        CURLOPT_POSTFIELDS     => implode('&', $qs),
         CURLOPT_HTTPHEADER     => ['Content-Type: application/x-www-form-urlencoded'],
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_TIMEOUT        => 30,

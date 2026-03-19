@@ -35,8 +35,8 @@ function Dropdown({ trigger, children, className }) {
     <div ref={ref} style={{ position: 'relative', display: 'inline-block' }}>
       <div onClick={() => setOpen(v => !v)}>{trigger(open)}</div>
       {open && (
-        <div className={`fb-dropdown ${className || ''}`} onClick={() => setOpen(false)}>
-          {children}
+        <div className={`fb-dropdown ${className || ''}`}>
+          {typeof children === 'function' ? children(() => setOpen(false)) : children}
         </div>
       )}
     </div>
@@ -46,7 +46,16 @@ function Dropdown({ trigger, children, className }) {
 // ── Searchable field picker ───────────────────────────────────────────────────
 function FieldPicker({ value, schema, onChange }) {
   const [search, setSearch] = useState('')
-  const filtered = schema.filter(f =>
+  const dedupedSchema = []
+  const schemaByLabel = new Map()
+  schema.forEach(f => {
+    if (!schemaByLabel.has(f.label)) {
+      schemaByLabel.set(f.label, f)
+      dedupedSchema.push(f)
+    }
+  })
+
+  const filtered = dedupedSchema.filter(f =>
     f.label.toLowerCase().includes(search.toLowerCase()) ||
     f.name.toLowerCase().includes(search.toLowerCase())
   )
@@ -72,27 +81,31 @@ function FieldPicker({ value, schema, onChange }) {
         </button>
       )}
     >
-      <div className="fb-field-search-wrap" onClick={e => e.stopPropagation()}>
-        <Search size={12} className="fb-field-search-icon" />
-        <input autoFocus className="fb-field-search" placeholder="Search fields…"
-          value={search} onChange={e => setSearch(e.target.value)} />
-      </div>
-      <div className="fb-field-list">
-        {filtered.length === 0 && <div className="fb-field-empty">No fields match</div>}
-        {filtered.map(f => {
-          const m = TYPE_META[f.type] || TYPE_META.string
-          const Icon = m.icon
-          return (
-            <button key={f.name} className={`fb-field-option ${f.name === value ? 'active' : ''}`}
-              onClick={() => onChange(f.name)}>
-              <span className="fb-option-icon" style={{ color: m.color, background: m.bg }}><Icon size={11} /></span>
-              <span className="fb-option-label">{f.label}</span>
-              <span className="fb-option-type">{m.label}</span>
-              {f.name === value && <Check size={11} className="fb-option-check" />}
-            </button>
-          )
-        })}
-      </div>
+      {(closeDropdown) => (
+        <>
+          <div className="fb-field-search-wrap" onClick={e => e.stopPropagation()}>
+            <Search size={12} className="fb-field-search-icon" />
+            <input autoFocus className="fb-field-search" placeholder="Search fields…"
+              value={search} onChange={e => setSearch(e.target.value)} />
+          </div>
+          <div className="fb-field-list">
+            {filtered.length === 0 && <div className="fb-field-empty">No fields match</div>}
+            {filtered.map(f => {
+              const m = TYPE_META[f.type] || TYPE_META.string
+              const Icon = m.icon
+              return (
+                <button key={f.name} className={`fb-field-option ${f.name === value ? 'active' : ''}`}
+                  onClick={() => { onChange(f.name); closeDropdown(); }}>
+                  <span className="fb-option-icon" style={{ color: m.color, background: m.bg }}><Icon size={11} /></span>
+                  <span className="fb-option-label">{f.label}</span>
+                  <span className="fb-option-type">{m.label}</span>
+                  {f.name === value && <Check size={11} className="fb-option-check" />}
+                </button>
+              )
+            })}
+          </div>
+        </>
+      )}
     </Dropdown>
   )
 }

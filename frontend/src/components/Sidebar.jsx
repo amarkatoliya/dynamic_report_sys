@@ -34,26 +34,41 @@ export default function Sidebar() {
 
   const usableSchema = schema.filter(f => !f.name.startsWith('_') && f.name !== 'id' && f.name !== 'score')
 
-  const filtered = usableSchema.filter(f =>
+  // Deduplicate schema by label
+  const dedupedSchema = []
+  const schemaByLabel = new Map()
+  usableSchema.forEach(f => {
+    if (!schemaByLabel.has(f.label)) {
+      const clone = { ...f, names: [f.name] }
+      schemaByLabel.set(f.label, clone)
+      dedupedSchema.push(clone)
+    } else {
+      schemaByLabel.get(f.label).names.push(f.name)
+    }
+  })
+
+  const filtered = dedupedSchema.filter(f =>
     f.label.toLowerCase().includes(search.toLowerCase()) ||
-    f.name.toLowerCase().includes(search.toLowerCase())
+    f.names.some(n => n.toLowerCase().includes(search.toLowerCase()))
   )
 
-  const toggleColumn = (name) => {
-    setSelectedColumns(
-      selectedColumns.includes(name)
-        ? selectedColumns.filter(c => c !== name)
-        : [...selectedColumns, name]
-    )
+  const toggleColumn = (namesArr) => {
+    const isSelected = namesArr.some(n => selectedColumns.includes(n))
+    if (isSelected) {
+      setSelectedColumns(selectedColumns.filter(c => !namesArr.includes(c)))
+    } else {
+      setSelectedColumns([...new Set([...selectedColumns, ...namesArr])])
+    }
   }
 
   const toggleAll = () => {
-    if (selectedColumns.length === usableSchema.length) setSelectedColumns([])
-    else setSelectedColumns(usableSchema.map(f => f.name))
+    const allNames = usableSchema.map(f => f.name)
+    if (selectedColumns.length === allNames.length) setSelectedColumns([])
+    else setSelectedColumns(allNames)
   }
 
   const toggleGroup = (groupName, fields) => {
-    const groupNames = fields.map(f => f.name)
+    const groupNames = fields.flatMap(f => f.names)
     const allSelected = groupNames.every(n => selectedColumns.includes(n))
     if (allSelected) setSelectedColumns(selectedColumns.filter(c => !groupNames.includes(c)))
     else setSelectedColumns([...new Set([...selectedColumns, ...groupNames])])
@@ -88,7 +103,7 @@ export default function Sidebar() {
   })
 
   const renderFieldRow = (field) => {
-    const isSelected = selectedColumns.includes(field.name)
+    const isSelected = field.names.some(n => selectedColumns.includes(n))
     const isOver     = dragOver === field.name
     return (
       <div key={field.name} draggable
@@ -99,10 +114,10 @@ export default function Sidebar() {
         className={`sidebar-col-row ${isOver ? 'drag-over' : ''} ${dragging === field.name ? 'dragging' : ''} ${isSelected ? 'selected' : ''}`}>
         <GripVertical size={12} className="drag-handle" />
         <span className="type-dot" style={{ background: TYPE_ACCENT[field.type] || '#888' }} />
-        <span className="col-row-label" onClick={() => toggleColumn(field.name)} title={field.name}>
+        <span className="col-row-label" onClick={() => toggleColumn(field.names)} title={field.names.join(', ')}>
           {field.label}
         </span>
-        <button className="col-eye-btn" onClick={() => toggleColumn(field.name)} title={isSelected ? 'Hide' : 'Show'}>
+        <button className="col-eye-btn" onClick={() => toggleColumn(field.names)} title={isSelected ? 'Hide' : 'Show'}>
           {isSelected ? <Eye size={13} className="eye-on" /> : <EyeOff size={13} className="eye-off" />}
         </button>
       </div>
@@ -148,7 +163,7 @@ export default function Sidebar() {
                   <button className="sidebar-group-toggle" onClick={() => toggleCollapse(groupName)}>
                     {isCollapsed ? <ChevronRight size={11} /> : <ChevronDown size={11} />}
                     <span className="sidebar-group-name">{groupName}</span>
-                    <span className="sidebar-group-count">{fields.filter(f => selectedColumns.includes(f.name)).length}/{fields.length}</span>
+                    <span className="sidebar-group-count">{fields.filter(f => f.names.some(n => selectedColumns.includes(n))).length}/{fields.length}</span>
                   </button>
                   <button className={`sidebar-group-all ${allSel ? 'all-selected' : someSel ? 'partial' : ''}`}
                     onClick={() => toggleGroup(groupName, fields)}>

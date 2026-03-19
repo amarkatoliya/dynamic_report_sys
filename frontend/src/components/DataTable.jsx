@@ -59,6 +59,24 @@ export default function DataTable() {
     return f?.label || name.replace(/(_s|_i|_f|_b|_dt)$/, '').replace(/_/g, ' ')
   }
 
+  // Deduplicate columns by label so `price_i` and `price_f` become one visually
+  const dedupedCols = useMemo(() => {
+    const seen = new Set()
+    const out = []
+    displayCols.forEach(col => {
+      const label = getLabel(col)
+      if (!seen.has(label)) {
+        seen.add(label)
+        out.push({
+          id: col,
+          label,
+          group: schema.filter(c => getLabel(c.name) === label).map(c => c.name)
+        })
+      }
+    })
+    return out
+  }, [displayCols, schema])
+
   // Virtual scrolling
   const { start, end, onScroll, totalHeight, offsetTop } = useVirtualScroll(results.length, scrollRef)
   const visibleRows = results.slice(start, end)
@@ -113,20 +131,20 @@ export default function DataTable() {
         ) : (
           <table className="data-table">
             <colgroup>
-              {displayCols.map(col => (
-                <col key={col} style={{ width: columnWidths[col] || 140 }} />
+              {dedupedCols.map(col => (
+                <col key={col.id} style={{ width: columnWidths[col.id] || 140 }} />
               ))}
             </colgroup>
             <thead>
               <tr>
-                {displayCols.map(col => (
-                  <th key={col} className={`th ${sort.startsWith(col) ? 'sorted' : ''}`}>
-                    <div className="th-inner" onClick={() => handleSort(col)}>
-                      <span className="th-label">{getLabel(col)}</span>
-                      {getSortIcon(col)}
+                {dedupedCols.map(col => (
+                  <th key={col.id} className={`th ${sort.startsWith(col.id) ? 'sorted' : ''}`}>
+                    <div className="th-inner" onClick={() => handleSort(col.id)}>
+                      <span className="th-label">{col.label}</span>
+                      {getSortIcon(col.id)}
                     </div>
-                    <div className={`resize-handle ${resizing === col ? 'active' : ''}`}
-                      onMouseDown={e => startResize(e, col)} />
+                    <div className={`resize-handle ${resizing === col.id ? 'active' : ''}`}
+                      onMouseDown={e => startResize(e, col.id)} />
                   </th>
                 ))}
               </tr>
@@ -140,13 +158,16 @@ export default function DataTable() {
               )}
               {visibleRows.map((row, ri) => (
                 <tr key={row.id || (start + ri)} className={`tr ${(start + ri) % 2 === 1 ? 'alt' : ''}`}>
-                  {displayCols.map(col => (
-                    <td key={col} className="td"
-                      style={{ maxWidth: columnWidths[col] || 140 }}
-                      title={String(row[col] ?? '')}>
-                      <CellValue value={row[col]} col={col} />
-                    </td>
-                  ))}
+                  {dedupedCols.map(col => {
+                    const valCol = col.group.find(g => row[g] != null && row[g] !== '') || col.id
+                    return (
+                      <td key={col.id} className="td"
+                        style={{ maxWidth: columnWidths[col.id] || 140 }}
+                        title={String(row[valCol] ?? '')}>
+                        <CellValue value={row[valCol]} col={valCol} />
+                      </td>
+                    )
+                  })}
                 </tr>
               ))}
               {/* Bottom spacer for virtual scroll */}
