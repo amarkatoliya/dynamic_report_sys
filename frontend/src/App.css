@@ -168,11 +168,36 @@
   margin-bottom: 2px;
   cursor: grab;
   border: 1px solid transparent;
-  transition: background 0.1s;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  background: transparent;
 }
 .sidebar-col-row:hover { background: var(--bg3); }
 .sidebar-col-row.selected { background: var(--accent-light); border-color: rgba(37,99,235,0.1); }
 .sidebar-col-row.selected .col-row-label { font-weight: 500; color: var(--accent2); }
+
+/* Industry Professional Drag States */
+.sidebar-col-row.dragging {
+  opacity: 0.4;
+  background: var(--bg4) !important;
+  transform: scale(0.98);
+  border: 1px dashed var(--accent);
+}
+
+.sidebar-col-row.drag-over {
+  background: var(--accent-light);
+}
+.sidebar-col-row.drag-over::before {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; top: -2px;
+  height: 3px;
+  background: var(--accent);
+  border-radius: 2px;
+  box-shadow: 0 0 10px var(--accent);
+  z-index: 10;
+}
+
 
 .drag-handle { color: var(--border2); cursor: grab; }
 .type-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
@@ -724,11 +749,31 @@
 
 .th-inner {
   display: flex; align-items: center; gap: 6px;
-  padding: 12px 16px; cursor: pointer;
+  padding: 12px 16px; cursor: grab;
   font-weight: 600; color: var(--text2);
+  transition: color 0.2s;
 }
+.th:active .th-inner { cursor: grabbing; }
 .th.sorted .th-inner { color: var(--accent2); }
-.th-inner:hover { color: var(--text); }
+.th-inner:hover { color: var(--text); background: rgba(255,255,255,0.03); }
+
+/* Table Header Dragging Styles */
+.th.dragging {
+  opacity: 0.5;
+  background: var(--bg4) !important;
+  border-bottom: 2px dashed var(--accent);
+}
+
+.th.drag-over::after {
+  content: "";
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 4px;
+  background: var(--accent);
+  box-shadow: 0 0 10px var(--accent);
+  z-index: 10;
+}
+
 .th-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .resize-handle {
@@ -777,7 +822,11 @@
 }
 .pagination-info { font-size: 13px; color: var(--text2); }
 .pagination-info strong { color: var(--text); font-weight: 600; }
-.pagination-controls { display: flex; gap: 6px; }
+.pagination-controls { 
+  display: flex; 
+  gap: 6px; 
+  margin-right: 64px; /* Safe zone for Saved Views floating button */
+}
 .page-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
 
 /* Compare view */

@@ -35,6 +35,8 @@ export default function DataTable() {
   } = useStore()
 
   const [resizing, setResizing] = useState(null)
+  const [headerDragging, setHeaderDragging] = useState(null)
+  const [headerDragOver, setHeaderDragOver] = useState(null)
   const startX   = useRef(0)
   const startW   = useRef(0)
   const scrollRef = useRef(null)
@@ -100,6 +102,42 @@ export default function DataTable() {
     document.addEventListener('mouseup', onUp)
   }, [columnWidths, setColumnWidth])
 
+  // Header drag-reorder
+  const onHeaderDragStart = (e, colId) => {
+    setHeaderDragging(colId)
+    e.dataTransfer.effectAllowed = 'move'
+  }
+  const onHeaderDragOver = (e, colId) => {
+    e.preventDefault()
+    setHeaderDragOver(colId)
+  }
+  const onHeaderDrop = (e, targetColId) => {
+    e.preventDefault()
+    if (!headerDragging || headerDragging === targetColId) return
+    
+    // Find all physical fields for the source and target groups
+    const sourceGroup = dedupedCols.find(c => c.id === headerDragging)?.group || []
+    const targetGroup = dedupedCols.find(c => c.id === targetColId)?.group || []
+    
+    if (!sourceGroup.length || !targetGroup.length) return
+
+    const newOrder = [...(columnOrder.length ? columnOrder : selectedColumns)]
+    
+    // Remove source fields
+    sourceGroup.forEach(field => {
+      const idx = newOrder.indexOf(field)
+      if (idx !== -1) newOrder.splice(idx, 1)
+    })
+    
+    // Find new insertion point (before the target group's first element)
+    const targetIdx = newOrder.indexOf(targetGroup[0])
+    newOrder.splice(targetIdx, 0, ...sourceGroup)
+    
+    setColumnOrder(newOrder)
+    setHeaderDragging(null)
+    setHeaderDragOver(null)
+  }
+
   const handleSort = (col) => {
     if (!sort.startsWith(col)) setSort(`${col} asc`)
     else if (sort.endsWith('asc')) setSort(`${col} desc`)
@@ -138,7 +176,14 @@ export default function DataTable() {
             <thead>
               <tr>
                 {dedupedCols.map(col => (
-                  <th key={col.id} className={`th ${sort.startsWith(col.id) ? 'sorted' : ''}`}>
+                  <th key={col.id} 
+                    className={`th ${sort.startsWith(col.id) ? 'sorted' : ''} ${headerDragOver === col.id ? 'drag-over' : ''} ${headerDragging === col.id ? 'dragging' : ''}`}
+                    draggable={!resizing}
+                    onDragStart={e => onHeaderDragStart(e, col.id)}
+                    onDragOver={e => onHeaderDragOver(e, col.id)}
+                    onDrop={e => onHeaderDrop(e, col.id)}
+                    onDragEnd={() => { setHeaderDragging(null); setHeaderDragOver(null) }}
+                  >
                     <div className="th-inner" onClick={() => handleSort(col.id)}>
                       <span className="th-label">{col.label}</span>
                       {getSortIcon(col.id)}

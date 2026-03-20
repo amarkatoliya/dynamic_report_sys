@@ -82,10 +82,19 @@ export const useStore = create((set, get) => {
     columnWidths: {},
     columnOrder: [],
     columnGroups: [],                          // [{ label, columns: [] }]
-    setSelectedColumns: (cols) => set({ selectedColumns: cols, columnOrder: cols }),
-    setColumnOrder:     (order) => set({ columnOrder: order }),
-    setColumnWidth:     (col, width) => set(s => ({ columnWidths: { ...s.columnWidths, [col]: width } })),
-    setColumnGroups:    (groups) => set({ columnGroups: groups }),
+    setSelectedColumns: (cols) => {
+      const s = get()
+      // Preserve existing order of selected items, then add newcomers to the end
+      const newOrder = [
+        ...s.columnOrder.filter(c => cols.includes(c)),
+        ...cols.filter(c => !s.columnOrder.includes(c))
+      ]
+      set({ selectedColumns: cols, columnOrder: newOrder })
+      get().query()
+    },
+    setColumnOrder: (order) => set({ columnOrder: order }),
+    setColumnWidth: (col, width) => set(s => ({ columnWidths: { ...s.columnWidths, [col]: width } })),
+    setColumnGroups: (groups) => set({ columnGroups: groups }),
 
     // ── Filters ──────────────────────────────────────────────────────────────
     filters: [],
