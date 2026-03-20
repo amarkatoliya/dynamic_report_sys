@@ -71,6 +71,7 @@ switch (true) {
     case $uri === '/query'          && $method === 'POST':   handleQuery($solrUrl);                break;
     case $uri === '/schema'         && $method === 'GET':    handleSchema($solrUrl);               break;
     case $uri === '/facets'         && $method === 'POST':   handleFacets($solrUrl);               break;
+    case $uri === '/chart-data'     && $method === 'POST':   handleChartData($solrUrl);            break;
     case $uri === '/aggregations'   && $method === 'POST':   handleAggregations($solrUrl);         break;
     case $uri === '/views'          && $method === 'GET':    handleGetViews();                     break;
     case $uri === '/views'          && $method === 'POST':   handleSaveView();                     break;
@@ -286,49 +287,6 @@ function handleFacets(string $solrUrl): void
     json($result);
 }
 
-// ── Aggregations (Sum / Avg / Count / Min / Max) ────────────────────────────────
-function handleAggregations(string $solrUrl): void
-{
-    global $cacheTtl;
-    $body   = getBody();
-    $fields = $body['fields'] ?? [];
-    $fqs    = buildFilterQueries($body['filters'] ?? []);
-
-    if (empty($fields)) { json(['aggregations' => []]); return; }
-
-    $cKey = cacheKey('agg', ['fields' => $fields, 'fqs' => $fqs]);
-    $cached = cacheGet($cKey);
-    if ($cached) { json($cached); return; }
-
-    $params = [
-        'q'    => '*:*',
-        'rows' => 0,
-        'wt'   => 'json',
-        'stats'        => 'true',
-        'stats.calcdistinct' => 'true',
-    ];
-    foreach ($fields as $f) $params['stats.field'][] = $f;
-    if (!empty($fqs)) $params['fq'] = $fqs;
-
-    $response = solrRequest($solrUrl . '/select', $params);
-    $data = json_decode($response, true);
-
-    $aggs = [];
-    foreach ($data['stats']['stats_fields'] ?? [] as $field => $stats) {
-        $aggs[$field] = [
-            'count'  => $stats['count']  ?? 0,
-            'sum'    => $stats['sum']    ?? 0,
-            'min'    => $stats['min']    ?? null,
-            'max'    => $stats['max']    ?? null,
-            'mean'   => $stats['mean']   ?? null,
-            'stddev' => $stats['stddev'] ?? null,
-        ];
-    }
-
-    $result = ['aggregations' => $aggs];
-    cacheSet($cKey, $result, $cacheTtl);
-    json($result);
-}
 
 // ── Views ──────────────────────────────────────────────────────────────────────
 function viewsFile(): string { return __DIR__ . '/../storage/views.json'; }
@@ -395,6 +353,147 @@ function handleSetDefaultView(): void
     }, loadViews());
     saveViews($views);
     json(['success' => true]);
+}
+
+// ── Chart Data (server-side aggregation) ─────────────────────────────────────
+function handleChartData(string $solrUrl): void
+{
+    global $cacheTtl;
+    $body = getBody();
+
+    $xField    = $body['xField']   ?? null;
+    $yField    = $body['yField']   ?? null;    // numeric field to SUM, or null for COUNT
+    $y2Field   = $body['y2Field']  ?? null;    // optional second numeric field
+    $filters   = $body['filters']  ?? [];
+    $source    = $body['source']   ?? null;
+    $limit     = min((int)($body['limit'] ?? 30), 100);
+    $q         = $body['q']           ?? '*:*';
+
+    if (!$xField) { json(['error' => 'xField is required']); return; }
+
+    // Build filter queries
+    $fqs = buildFilterQueries($filters);
+    if ($source) {
+        $fqs[] = 'source_file_s:"' . addslashes($source) . '"';
+    }
+
+    $params = [
+        'q'          => $q,
+        'rows'       => 0,
+        'wt'         => 'json',
+        'facet'      => 'true',
+        'facet.field'=> $xField,
+        'facet.limit'=> $limit,
+        'facet.mincount' => 1,
+    ];
+
+    if ($yField) {
+        $params['stats'] = 'true';
+        $params['stats.field'] = [$yField];
+        if ($y2Field) $params['stats.field'][] = $y2Field;
+        $params['stats.facet'] = $xField;
+    }
+
+    if (!empty($fqs)) $params['fq'] = $fqs;
+
+    // Cache
+    $cKey = cacheKey('chart2', $params);
+    $cached = cacheGet($cKey);
+    if ($cached) { json(array_merge($cached, ['cached' => true])); return; }
+
+    $response = solrRequest($solrUrl . '/select', $params);
+    $data     = json_decode($response, true);
+    $total    = $data['response']['numFound'] ?? 0;
+
+    $chartData = [];
+    $facets = $data['facet_counts']['facet_fields'][$xField] ?? [];
+    
+    // Classic stats grouped by facet
+    $statsFacet = $data['stats']['stats_fields'] ?? [];
+
+    for ($i = 0; $i < count($facets); $i += 2) {
+        $val = $facets[$i];
+        $count = $facets[$i+1];
+        
+        $point = [
+            'name'  => (string)$val,
+            'count' => $count,
+        ];
+
+        if ($yField && isset($statsFacet[$yField]['facets'][$xField][$val])) {
+            $sf = $statsFacet[$yField]['facets'][$xField][$val];
+            $point['y_sum'] = is_numeric($sf['sum'] ?? null) ? $sf['sum'] : 0;
+            $point['y_avg'] = is_numeric($sf['mean'] ?? null) ? round((float)$sf['mean'], 2) : 0;
+            $point['y_min'] = is_numeric($sf['min'] ?? null) ? $sf['min'] : 0;
+            $point['y_max'] = is_numeric($sf['max'] ?? null) ? $sf['max'] : 0;
+        }
+        if ($y2Field && isset($statsFacet[$y2Field]['facets'][$xField][$val])) {
+            $sf = $statsFacet[$y2Field]['facets'][$xField][$val];
+            $point['y2_sum'] = is_numeric($sf['sum'] ?? null) ? $sf['sum'] : 0;
+            $point['y2_avg'] = is_numeric($sf['mean'] ?? null) ? round((float)$sf['mean'], 2) : 0;
+        }
+
+        $chartData[] = $point;
+    }
+
+    // Global stats
+    $globalStats = ['total_docs' => $total];
+    if ($yField && isset($statsFacet[$yField])) {
+        $sf = $statsFacet[$yField];
+        $globalStats['y_sum'] = is_numeric($sf['sum'] ?? null) ? $sf['sum'] : 0;
+        $globalStats['y_avg'] = is_numeric($sf['mean'] ?? null) ? round((float)$sf['mean'], 2) : 0;
+        $globalStats['y_min'] = is_numeric($sf['min'] ?? null) ? $sf['min'] : 0;
+        $globalStats['y_max'] = is_numeric($sf['max'] ?? null) ? $sf['max'] : 0;
+    }
+
+    $result = [
+        'data'   => $chartData,
+        'stats'  => $globalStats,
+        'timing' => $data['responseHeader']['QTime'] ?? null,
+    ];
+
+    cacheSet($cKey, $result, $cacheTtl);
+    json($result);
+}
+
+// ── Aggregations ───────────────────────────────────────────────────────────────
+function handleAggregations(string $solrUrl): void
+{
+    $body    = getBody();
+    $fields  = $body['fields']  ?? [];
+    $filters = $body['filters'] ?? [];
+    $source  = $body['source']  ?? null;
+
+    $fqs = buildFilterQueries($filters);
+    if ($source) {
+        $fqs[] = 'source_file_s:"' . addslashes($source) . '"';
+    }
+
+    $params = [
+        'q'          => '*:*',
+        'rows'       => 0,
+        'wt'         => 'json',
+        'stats'      => 'true',
+    ];
+    if (!empty($fqs)) $params['fq'] = $fqs;
+    foreach ($fields as $f) $params['stats.field'][] = $f;
+
+    $response = solrRequest($solrUrl . '/select', $params);
+    $data     = json_decode($response, true);
+    $statsFacet = $data['stats']['stats_fields'] ?? [];
+
+    $aggregations = [];
+    foreach ($fields as $f) {
+        $sf = $statsFacet[$f] ?? [];
+        $aggregations[$f] = [
+            'sum' => is_numeric($sf['sum'] ?? null) ? $sf['sum'] : 0,
+            'avg' => is_numeric($sf['mean'] ?? null) ? round((float)$sf['mean'], 2) : 0,
+            'min' => is_numeric($sf['min'] ?? null) ? $sf['min'] : 0,
+            'max' => is_numeric($sf['max'] ?? null) ? $sf['max'] : 0,
+        ];
+    }
+
+    json(['aggregations' => $aggregations]);
 }
 
 // ── Produce ────────────────────────────────────────────────────────────────────
@@ -574,10 +673,10 @@ function solrRequest(string $url, array $params): string
     foreach ($params as $k => $v) {
         if (is_array($v)) {
             foreach ($v as $val) {
-                $qs[] = rawurlencode($k) . '=' . rawurlencode((string)$val);
+                $qs[] = urlencode($k) . '=' . rawurlencode((string)$val);
             }
         } else {
-            $qs[] = rawurlencode($k) . '=' . rawurlencode((string)$v);
+            $qs[] = urlencode($k) . '=' . rawurlencode((string)$v);
         }
     }
     $ch = curl_init();

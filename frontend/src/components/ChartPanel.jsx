@@ -1,11 +1,11 @@
-import React, { useState, useRef, useMemo } from 'react'
+import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { useStore } from '../store'
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer, Brush, ComposedChart, Area
 } from 'recharts'
-import { BarChart2, TrendingUp, PieChart as PieIcon, Download, Layers } from 'lucide-react'
+import { BarChart2, TrendingUp, PieChart as PieIcon, Download, Layers, RefreshCw, Database } from 'lucide-react'
 
 const COLORS = ['#60a5fa', '#34d399', '#fbbf24', '#f87171', '#c084fc', '#22d3ee', '#f472b6', '#a3e635', '#2dd4bf', '#fb7185']
 
@@ -23,11 +23,18 @@ const tooltipStyle = {
 }
 
 export default function ChartPanel() {
-  const { results, schema, addFilter, _doQuery, aggregations, fetchAggregations } = useStore()
+  const {
+    schema, addFilter, _doQuery,
+    chartData, chartStats, chartLoading, fetchChartData,
+    aggregations, fetchAggregations,
+    total,
+  } = useStore()
+
   const [chartType, setChartType] = useState('bar')
   const [xField, setXField]       = useState('')
   const [yField, setYField]       = useState('')
-  const [y2Field, setY2Field]     = useState('') // second Y axis for multi-axis
+  const [y2Field, setY2Field]     = useState('')
+  const [yMetric, setYMetric]     = useState('y_sum') // y_sum, y_avg, count
   const [showAgg, setShowAgg]     = useState(false)
   const chartRef = useRef(null)
 
@@ -43,26 +50,46 @@ export default function ChartPanel() {
     return f?.label || name.replace(/(_s|_i|_f|_b|_dt)$/, '').replace(/_/g, ' ')
   }
 
-  const chartData = useMemo(() => {
-    if (!defaultX || !results.length) return []
-    const agg = {}
-    results.forEach(row => {
-      const key = String(row[defaultX] ?? 'Unknown')
-      if (!agg[key]) agg[key] = { name: key, count: 0 }
-      agg[key].count += 1
-      if (defaultY && row[defaultY] != null)
-        agg[key][defaultY] = (agg[key][defaultY] || 0) + Number(row[defaultY])
-      if (defaultY2 && row[defaultY2] != null)
-        agg[key][defaultY2] = (agg[key][defaultY2] || 0) + Number(row[defaultY2])
+  // Fetch chart data from server when axis fields change
+  const loadChart = useCallback(() => {
+    if (!defaultX) return
+    fetchChartData({
+      xField: defaultX,
+      yField: defaultY || null,
+      y2Field: chartType === 'multiaxis' ? defaultY2 : null,
     })
-    return Object.values(agg).sort((a, b) => b.count - a.count).slice(0, 20)
-  }, [results, defaultX, defaultY, defaultY2])
+  }, [defaultX, defaultY, defaultY2, chartType, fetchChartData])
+
+  // Auto-load chart when fields or type change
+  useEffect(() => {
+    loadChart()
+  }, [loadChart])
+
+  // Pick the right Y-axis data key based on user-selected metric
+  const getYKey = () => {
+    if (!defaultY) return 'count'
+    return yMetric
+  }
+
+  const getYLabel = () => {
+    if (!defaultY) return 'Count'
+    const base = getLabel(defaultY)
+    if (yMetric === 'y_sum') return `Sum of ${base}`
+    if (yMetric === 'y_avg') return `Avg of ${base}`
+    return 'Count'
+  }
+
+  const yKey = getYKey()
+  const yLabel = getYLabel()
+  const y2Key = chartType === 'multiaxis' && defaultY2 ? 'y2_sum' : ''
+  const y2Label = defaultY2 ? `Sum of ${getLabel(defaultY2)}` : ''
 
   const drillDown = (data) => {
     if (!data?.activePayload?.[0]) return
     const value = data.activePayload[0].payload.name
-    useStore.getState().addFilter({ field: defaultX, type: 'text', value, op: 'AND' })
+    addFilter({ field: defaultX, type: 'text', value, op: 'AND' })
     _doQuery()
+    loadChart() // Refresh chart after drill-down
   }
 
   const exportSVG = () => {
@@ -95,11 +122,6 @@ export default function ChartPanel() {
     img.src = URL.createObjectURL(blob)
   }
 
-  const yKey = defaultY || 'count'
-  const yLabel = defaultY ? getLabel(defaultY) : 'Count'
-  const y2Key = defaultY2 || ''
-  const y2Label = defaultY2 ? getLabel(defaultY2) : ''
-
   const handleShowAgg = () => {
     setShowAgg(v => !v)
     if (!showAgg) fetchAggregations()
@@ -130,13 +152,25 @@ export default function ChartPanel() {
           <div className="chart-field-group">
             <span className="chart-field-label">Y</span>
             <select className="input chart-field-select" value={yField} onChange={e => setYField(e.target.value)}>
-              <option value="">Count</option>
+              <option value="">Count (default)</option>
               {numericFields.map(f => <option key={f.name} value={f.name}>{f.label}</option>)}
             </select>
           </div>
         )}
 
-        {/* Second Y axis — only for multi-axis */}
+        {/* Metric selector for Y axis */}
+        {chartType !== 'pie' && defaultY && (
+          <div className="chart-field-group">
+            <span className="chart-field-label">Metric</span>
+            <select className="input chart-field-select" value={yMetric}
+              onChange={e => setYMetric(e.target.value)}>
+              <option value="y_sum">Sum</option>
+              <option value="y_avg">Average</option>
+              <option value="count">Count</option>
+            </select>
+          </div>
+        )}
+
         {chartType === 'multiaxis' && (
           <div className="chart-field-group">
             <span className="chart-field-label" style={{ color: '#f59e0b' }}>Y2</span>
@@ -149,12 +183,22 @@ export default function ChartPanel() {
 
         <div style={{ flex: 1 }} />
 
+        {/* Data scope badge */}
+        <div className="chart-scope-badge">
+          <Database size={11} />
+          <span>{(chartStats.total_docs || total || 0).toLocaleString()} records analyzed</span>
+        </div>
+
+        <button className="btn btn-sm" onClick={loadChart} title="Refresh chart data">
+          <RefreshCw size={13} className={chartLoading ? 'animate-spin' : ''} />
+        </button>
+
         <button className={`btn btn-sm ${showAgg ? 'btn-primary' : ''}`} onClick={handleShowAgg}>
           Σ Aggregations
         </button>
+
         <span className="chart-hint">Click to drill down</span>
 
-        {/* Export dropdown */}
         <div style={{ position: 'relative' }}>
           <button className="btn btn-sm" onClick={exportSVG}>
             <Download size={13} /> SVG
@@ -186,11 +230,17 @@ export default function ChartPanel() {
 
       {/* Chart */}
       <div className="chart-area" ref={chartRef}>
-        {chartData.length === 0 ? (
+        {chartLoading ? (
+          <div className="chart-empty">
+            <RefreshCw size={48} className="animate-spin" style={{ opacity: 0.15, marginBottom: 12 }} />
+            <p>Analyzing full dataset...</p>
+            <p style={{ fontSize: 12, opacity: 0.5 }}>Server-side aggregation in progress</p>
+          </div>
+        ) : chartData.length === 0 ? (
           <div className="chart-empty">
             <BarChart2 size={48} style={{ opacity: 0.15, marginBottom: 12 }} />
             <p>No data to display</p>
-            <p style={{ fontSize: 12, opacity: 0.5 }}>Run a query first</p>
+            <p style={{ fontSize: 12, opacity: 0.5 }}>Select fields or run a query first</p>
           </div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
@@ -244,9 +294,7 @@ export default function ChartPanel() {
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.15)" vertical={false} />
                 <XAxis dataKey="name" tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} axisLine={{ stroke: 'rgba(148,163,184,0.2)' }} />
-                {/* Left Y axis */}
                 <YAxis yAxisId="left" tick={{ fill: COLORS[0], fontSize: 11 }} tickLine={false} axisLine={false} />
-                {/* Right Y axis */}
                 {y2Key && <YAxis yAxisId="right" orientation="right" tick={{ fill: '#f59e0b', fontSize: 11 }} tickLine={false} axisLine={false} />}
                 <Tooltip contentStyle={tooltipStyle} />
                 <Legend wrapperStyle={{ fontSize: 12, paddingTop: '10px' }} />
@@ -264,7 +312,7 @@ export default function ChartPanel() {
                   cx="50%" cy="50%" outerRadius="65%" innerRadius="30%"
                   label={({ name, percent }) => `${name} (${(percent * 100).toFixed(1)}%)`}
                   onClick={(data) => {
-                    if (data?.name) { addFilter({ field: defaultX, type: 'text', value: data.name, op: 'AND' }); _doQuery() }
+                    if (data?.name) { addFilter({ field: defaultX, type: 'text', value: data.name, op: 'AND' }); _doQuery(); loadChart() }
                   }}
                   style={{ cursor: 'pointer' }} paddingAngle={2}>
                   {chartData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
@@ -277,15 +325,18 @@ export default function ChartPanel() {
         )}
       </div>
 
-      {/* Stats row */}
+      {/* Stats row — using server-side global stats */}
       {chartData.length > 0 && (
         <div className="chart-stats">
           {[
-            { label: 'Points', value: chartData.length },
-            { label: 'Max',    value: Math.max(...chartData.map(d => d[yKey] || 0)).toLocaleString() },
-            { label: 'Min',    value: Math.min(...chartData.map(d => d[yKey] || 0)).toLocaleString() },
-            { label: 'Avg',    value: Math.round(chartData.reduce((s,d) => s + (d[yKey] || 0), 0) / chartData.length).toLocaleString() },
-            { label: 'Total',  value: chartData.reduce((s,d) => s + (d[yKey] || 0), 0).toLocaleString() },
+            { label: 'Total Docs',  value: (chartStats.total_docs || 0).toLocaleString() },
+            { label: 'Categories',  value: chartData.length },
+            ...(chartStats.y_sum != null ? [
+              { label: 'Total',  value: Number(chartStats.y_sum).toLocaleString() },
+              { label: 'Avg',    value: Number(chartStats.y_avg).toLocaleString() },
+              { label: 'Min',    value: Number(chartStats.y_min).toLocaleString() },
+              { label: 'Max',    value: Number(chartStats.y_max).toLocaleString() },
+            ] : []),
           ].map(({ label, value }) => (
             <div key={label} className="chart-stat">
               <div className="chart-stat-label">{label}</div>

@@ -59,10 +59,37 @@ export const useStore = create((set, get) => {
         
         // Auto-select columns
         if (fields.length > 0) {
-          // Select ALL for source-specific, or limit to 15 for global (All Files)
-          const limit = s.selectedSource ? fields.length : 15
-          const cols = fields.slice(0, limit).map(f => f.name)
-          set({ selectedColumns: cols, columnOrder: cols })
+          if (!s.selectedSource) {
+            // "All Source Files" is selected.
+            // Explicitly match the exact columns from AF.csv (the normal CSV view)
+            const exactDefaults = [
+              'product_id_i',
+              'Product_Name_s',
+              'parent_sku_s',
+              'Price_f',
+              'Map_Price_f',
+              'Type_s',
+              'Brand_Name_s',
+              'AF_SKU_s',
+              'AF_URL_s',
+              'Image_URL_s',
+              'AF_PRICE_i'
+            ];
+            
+            // Filter global columns to ONLY these exact fields, maintaining the order defined above if possible
+            let cols = exactDefaults.filter(dc => fields.some(f => f.name === dc));
+
+            // Fallback if none found
+            if (cols.length === 0) {
+              cols = fields.slice(0, 15).map(f => f.name);
+            }
+
+            set({ selectedColumns: cols, columnOrder: cols });
+          } else {
+            // A specific file like AF.csv is selected: Show all its columns
+            const cols = fields.map(f => f.name);
+            set({ selectedColumns: cols, columnOrder: cols });
+          }
         }
       } catch (e) {
         console.error('Schema fetch failed', e)
@@ -250,15 +277,65 @@ export const useStore = create((set, get) => {
       }
     },
 
+    // ── Chart Data (server-side full-dataset aggregation) ───────────────────────
+    chartData: [],
+    chartStats: {},
+    chartLoading: false,
+    fetchChartData: async ({ xField, yField, y2Field } = {}) => {
+      const s = get()
+      if (!xField) return
+
+      set({ chartLoading: true })
+
+      // Build the same active filters the table uses
+      const activeFilters = s.filters.filter(isFilterActive)
+      const body = {
+        xField,
+        yField: yField || null,
+        y2Field: y2Field || null,
+        filters: activeFilters,
+        source: s.selectedSource || null,
+        q: '*:*',
+        limit: 30,
+      }
+
+      try {
+        const res  = await fetch(`${API}/chart-data`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify(body),
+        })
+        const data = await res.json()
+        set({
+          chartData:  data.data  || [],
+          chartStats: data.stats || {},
+        })
+      } catch (e) {
+        console.error('Chart data fetch failed', e)
+      } finally {
+        set({ chartLoading: false })
+      }
+    },
+
     // ── Aggregations ──────────────────────────────────────────────────────────
     aggregations: {},
     fetchAggregations: async (fields) => {
-      // Fetch sum/avg/count via facet stats from Solr through our API
+      const s = get()
+      const numFields = fields || s.schema
+        .filter(f => f.type === 'integer' || f.type === 'float')
+        .map(f => f.name)
+
+      if (!numFields.length) return
+
       try {
         const res  = await fetch(`${API}/aggregations`, {
           method:  'POST',
           headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ fields }),
+          body:    JSON.stringify({
+            fields:  numFields,
+            filters: s.filters.filter(isFilterActive),
+            source:  s.selectedSource || null,
+          }),
         })
         const data = await res.json()
         set({ aggregations: data.aggregations || {} })
