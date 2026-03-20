@@ -73,9 +73,19 @@ function autocast(string $value): mixed
     if (strtolower($value) === 'false') return false;
 
     // Try date detection
+    // 1. ISO-ish (YYYY-MM-DD...)
     if (preg_match('/^\d{4}-\d{2}-\d{2}/', $value)) {
         $ts = strtotime($value);
         if ($ts !== false) return date('Y-m-d\TH:i:s\Z', $ts);
+    }
+    // 2. User's format (DD/MM/YYYY HH:MM)
+    if (preg_match('/^\d{1,2}\/\d{1,2}\/\d{4}/', $value)) {
+        // Try multiple common slash formats, prioritize DD/MM/YYYY
+        $fmts = ['d/m/Y H:i', 'd/m/Y', 'm/d/Y H:i', 'm/d/Y'];
+        foreach ($fmts as $f) {
+            $dt = DateTime::createFromFormat($f, $value);
+            if ($dt !== false) return $dt->format('Y-m-d\TH:i:s\Z');
+        }
     }
 
     return $value;

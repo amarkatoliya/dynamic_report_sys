@@ -135,8 +135,10 @@ export const useStore = create((set, get) => {
     // ── Date ─────────────────────────────────────────────────────────────────
     dateRange:    { from: '', to: '' },
     dateCompare:  null,
+    dateField:    '',
     setDateRange: (dr) => set({ dateRange: dr }),
     setDateCompare: (dc) => set({ dateCompare: dc }),
+    setDateField: (df) => set({ dateField: df }),
 
     // ── Search (debounced) ────────────────────────────────────────────────────
     globalSearch: '',
@@ -238,6 +240,17 @@ export const useStore = create((set, get) => {
           field: 'source_file_s',
           type: 'equals',
           value: s.selectedSource,
+          op: 'AND'
+        })
+      }
+
+      // Add global date range if both field and range are set
+      if (s.dateField && (s.dateRange.from || s.dateRange.to)) {
+        body.filters.push({
+          field: s.dateField,
+          type: 'date_range',
+          from: s.dateRange.from,
+          to: s.dateRange.to,
           op: 'AND'
         })
       }

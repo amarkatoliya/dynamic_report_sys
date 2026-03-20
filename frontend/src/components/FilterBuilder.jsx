@@ -427,53 +427,7 @@ function ActivePills({ filters, schema, onRemove }) {
   )
 }
 
-// ── Date compare section ──────────────────────────────────────────────────────
-function DateCompareSection({ dateRange, setDateRange, dateCompare, setDateCompare }) {
-  const [enabled, setEnabled] = useState(!!dateCompare)
 
-  const toggle = (v) => {
-    setEnabled(v)
-    if (!v) setDateCompare(null)
-    else setDateCompare({ type: 'previous_period', from: dateRange.from, to: dateRange.to })
-  }
-
-  return (
-    <div className="fb-datecompare">
-      <div className="fb-datecompare-row">
-        <Calendar size={13} className="fb-dc-icon" />
-        <span className="fb-dc-label">Date Range</span>
-        <input className="fb-input fb-date-input" type="date"
-          value={dateRange.from}
-          onChange={e => {
-            const val = e.target.value
-            setDateRange({ ...dateRange, from: val })
-            if (enabled) setDateCompare({ ...(dateCompare || {}), from: val })
-          }} />
-        <span className="fb-range-sep">—</span>
-        <input className="fb-input fb-date-input" type="date"
-          value={dateRange.to}
-          onChange={e => {
-            const val = e.target.value
-            setDateRange({ ...dateRange, to: val })
-            if (enabled) setDateCompare({ ...(dateCompare || {}), to: val })
-          }} />
-        <label className="fb-dc-toggle">
-          <input type="checkbox" checked={enabled} onChange={e => toggle(e.target.checked)} />
-          <GitMerge size={12} />
-          Compare Period
-        </label>
-        {enabled && (
-          <select className="fb-input" style={{ padding: '5px 8px', fontSize: 12 }}
-            value={dateCompare?.type || 'previous_period'}
-            onChange={e => setDateCompare({ ...(dateCompare || {}), type: e.target.value })}>
-            <option value="previous_period">vs Previous Period</option>
-            <option value="same_period_last_year">vs Same Period Last Year</option>
-          </select>
-        )}
-      </div>
-    </div>
-  )
-}
 
 // ── Main FilterBuilder ────────────────────────────────────────────────────────
 export default function FilterBuilder() {
@@ -538,11 +492,7 @@ export default function FilterBuilder() {
       {/* Body */}
       {expanded && (
         <div className="fb-body">
-          {/* Date compare row */}
-          <DateCompareSection
-            dateRange={dateRange} setDateRange={setDateRange}
-            dateCompare={dateCompare} setDateCompare={setDateCompare}
-          />
+
 
           {/* Filter cards */}
           {filters.length === 0 ? (

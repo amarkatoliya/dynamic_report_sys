@@ -1548,3 +1548,117 @@
   color: var(--text3);
   font-style: italic;
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   Date Range Filter Popover
+   ═══════════════════════════════════════════════════════════════════ */
+.date-range-filter {
+  position: relative;
+}
+
+.dr-popover {
+  position: absolute;
+  top: calc(100% + 12px);
+  right: 0;
+  width: 320px;
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xl);
+  z-index: 1000;
+  overflow: hidden;
+  padding: 20px;
+}
+
+.dr-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.dr-title {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--text3);
+  letter-spacing: 1px;
+}
+
+.dr-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.dr-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dr-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text2);
+}
+
+.dr-select-wrap {
+  position: relative;
+}
+
+.dr-select {
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 13px;
+  appearance: none;
+}
+
+.dr-select-chevron {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text3);
+  pointer-events: none;
+}
+
+.dr-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.dr-input {
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.dr-quick-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.btn-active {
+  background: var(--accent-light) !important;
+  border-color: var(--accent) !important;
+  color: var(--accent) !important;
+}
+
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.95) translateY(-10px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.animate-scale-in {
+  animation: scale-in 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}

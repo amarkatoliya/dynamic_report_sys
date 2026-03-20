@@ -251,13 +251,23 @@ export default function DataTable() {
   )
 }
 
+function formatDate(dateStr) {
+  if (!dateStr) return '—'
+  const d = new Date(dateStr)
+  if (isNaN(d.getTime())) return dateStr
+  const day   = String(d.getDate()).padStart(2, '0')
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const year  = d.getFullYear()
+  return `${day}-${month}-${year}`
+}
+
 function CellValue({ value, col }) {
   if (value == null) return <span className="cell-null">—</span>
   if (typeof value === 'boolean') {
     return <span className={`badge ${value ? 'badge-success' : 'badge-error'}`}>{value ? 'true' : 'false'}</span>
   }
   if (col.endsWith('_dt') || (typeof value === 'string' && value.match(/^\d{4}-\d{2}-\d{2}T/))) {
-    return <span className="cell-date">{new Date(value).toLocaleDateString()}</span>
+    return <span className="cell-date">{formatDate(value)}</span>
   }
   if (typeof value === 'number') {
     return <span className="cell-number">{value.toLocaleString()}</span>

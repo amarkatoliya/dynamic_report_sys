@@ -2,8 +2,10 @@ import React, { useState, useCallback } from 'react'
 import { useStore } from '../store'
 import {
   Menu, RefreshCw, Download, Table2, BarChart2,
-  Upload, ChevronDown, Check, Layers, Search, X, FileText
+  Upload, ChevronDown, Check, Layers, Search, X, FileText,
+  Calendar
 } from 'lucide-react'
+import DateRangeFilter from './DateRangeFilter'
 
 // ── Excel export (uses SheetJS via CDN-free approach — pure JS XLSX) ──────────
 function exportXLSX(results, selectedColumns, schema) {
@@ -149,6 +151,8 @@ export default function TopBar() {
           onClick={triggerProducer} disabled={triggering}>
           {triggered ? <><Check size={13} /> Indexed!</> : <><Upload size={13} className={triggering ? 'animate-spin' : ''} /> Index CSV</>}
         </button>
+
+        <DateRangeFilter />
 
         <button className="btn btn-icon btn-sm" onClick={_doQuery} disabled={loading}>
           <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />

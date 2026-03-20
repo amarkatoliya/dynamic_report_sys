@@ -116,6 +116,13 @@ function buildSolrDoc(array $data): array
         }
 
         $suffix = getSolrSuffix($value);
+        
+        // Force _dt for date-related fields even if they are strings
+        $isDateField = preg_match('/(date|price_change|violation_time)/i', $cleanKey);
+        if ($isDateField && $suffix === '_s' && preg_match('/^\d{4}-\d{2}-\d{2}T/', (string)$value)) {
+            $suffix = '_dt';
+        }
+
         $doc[$cleanKey . $suffix] = $cleanValue;
     }
 
