@@ -196,45 +196,67 @@ export default function ChartPanel() {
           <ResponsiveContainer width="100%" height="100%">
             {chartType === 'bar' ? (
               <BarChart data={chartData} onClick={drillDown} style={{ cursor: 'pointer' }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.2)" vertical={false} />
-                <XAxis dataKey="name" tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} />
+                <defs>
+                  <linearGradient id="colorBar" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor={COLORS[0]} stopOpacity={0.9}/>
+                    <stop offset="95%" stopColor={COLORS[0]} stopOpacity={0.3}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.15)" vertical={false} />
+                <XAxis dataKey="name" tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} axisLine={{ stroke: 'rgba(148,163,184,0.2)' }} />
                 <YAxis tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} axisLine={false} />
-                <Tooltip contentStyle={tooltipStyle} cursor={{ fill: 'rgba(37,99,235,0.05)' }} />
-                <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Bar dataKey={yKey} name={yLabel} radius={[4, 4, 0, 0]}>
-                  {chartData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                <Tooltip contentStyle={tooltipStyle} cursor={{ fill: 'rgba(37,99,235,0.08)' }} />
+                <Legend wrapperStyle={{ fontSize: 12, paddingTop: '10px' }} />
+                <Bar dataKey={yKey} name={yLabel} radius={[6, 6, 0, 0]} isAnimationActive={true}>
+                  {chartData.map((_, i) => <Cell key={i} fill={`url(#colorBar)`} />)}
                 </Bar>
-                <Brush dataKey="name" height={18} stroke="#27272a" fill="#18181b" travellerWidth={5} />
+                <Brush dataKey="name" height={18} stroke="#27272a" fill="#18181b" travellerWidth={6} />
               </BarChart>
             ) : chartType === 'line' ? (
               <LineChart data={chartData} onClick={drillDown}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.2)" vertical={false} />
-                <XAxis dataKey="name" tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} />
+                <defs>
+                  <linearGradient id="lineColor" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0%" stopColor={COLORS[0]} />
+                    <stop offset="100%" stopColor={COLORS[1]} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.15)" vertical={false} />
+                <XAxis dataKey="name" tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} axisLine={{ stroke: 'rgba(148,163,184,0.2)' }} />
                 <YAxis tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} axisLine={false} />
                 <Tooltip contentStyle={tooltipStyle} />
-                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <Legend wrapperStyle={{ fontSize: 12, paddingTop: '10px' }} />
                 <Line type="monotone" dataKey={yKey} name={yLabel}
-                  stroke={COLORS[0]} strokeWidth={2.5}
-                  dot={{ fill: COLORS[0], r: 3 }} activeDot={{ r: 6 }} />
-                <Brush dataKey="name" height={18} stroke="#27272a" fill="#18181b" travellerWidth={5} />
+                  stroke="url(#lineColor)" strokeWidth={3}
+                  dot={{ fill: COLORS[0], r: 4, strokeWidth: 2, stroke: '#09090b' }} activeDot={{ r: 6, strokeWidth: 0 }} isAnimationActive={true} />
+                <Brush dataKey="name" height={18} stroke="#27272a" fill="#18181b" travellerWidth={6} />
               </LineChart>
             ) : chartType === 'multiaxis' ? (
               <ComposedChart data={chartData} onClick={drillDown}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.2)" vertical={false} />
-                <XAxis dataKey="name" tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} />
+                <defs>
+                  <linearGradient id="colorArea" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor={COLORS[0]} stopOpacity={0.25}/>
+                    <stop offset="95%" stopColor={COLORS[0]} stopOpacity={0.0}/>
+                  </linearGradient>
+                  <linearGradient id="colorBarLeft" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor={COLORS[0]} stopOpacity={0.8}/>
+                    <stop offset="95%" stopColor={COLORS[0]} stopOpacity={0.2}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.15)" vertical={false} />
+                <XAxis dataKey="name" tick={{ fill: '#64748b', fontSize: 11 }} tickLine={false} axisLine={{ stroke: 'rgba(148,163,184,0.2)' }} />
                 {/* Left Y axis */}
                 <YAxis yAxisId="left" tick={{ fill: COLORS[0], fontSize: 11 }} tickLine={false} axisLine={false} />
                 {/* Right Y axis */}
                 {y2Key && <YAxis yAxisId="right" orientation="right" tick={{ fill: '#f59e0b', fontSize: 11 }} tickLine={false} axisLine={false} />}
                 <Tooltip contentStyle={tooltipStyle} />
-                <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Bar yAxisId="left" dataKey={yKey} name={yLabel} fill={COLORS[0]} radius={[4,4,0,0]} opacity={0.85} />
+                <Legend wrapperStyle={{ fontSize: 12, paddingTop: '10px' }} />
+                <Bar yAxisId="left" dataKey={yKey} name={yLabel} fill="url(#colorBarLeft)" radius={[4,4,0,0]} isAnimationActive={true} />
                 {y2Key && (
                   <Line yAxisId="right" type="monotone" dataKey={y2Key} name={y2Label}
-                    stroke="#f59e0b" strokeWidth={2.5} dot={{ fill: '#f59e0b', r: 3 }} />
+                    stroke="#f59e0b" strokeWidth={3} dot={{ fill: '#f59e0b', r: 4, strokeWidth: 2, stroke: '#09090b' }} activeDot={{ r: 6 }} isAnimationActive={true} />
                 )}
-                <Area yAxisId="left" type="monotone" dataKey={yKey} fill={COLORS[0]} stroke="none" opacity={0.08} />
-                <Brush dataKey="name" height={18} stroke="#27272a" fill="#18181b" travellerWidth={5} />
+                <Area yAxisId="left" type="monotone" dataKey={yKey} fill="url(#colorArea)" stroke="none" isAnimationActive={true} />
+                <Brush dataKey="name" height={18} stroke="#27272a" fill="#18181b" travellerWidth={6} />
               </ComposedChart>
             ) : (
               <PieChart>

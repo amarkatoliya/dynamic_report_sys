@@ -14,11 +14,12 @@ function debounce(fn, ms) {
 // ── Filter active check ───────────────────────────────────────────────────────
 function isFilterActive(f) {
   if (!f.field && f.type !== 'nested') return false
-  if (f.type === 'nested') return f.children?.some(c => c.field && (c.value || c.min || c.max || c.from || c.to))
+  if (f.type === 'nested') return f.children?.some(c => isFilterActive(c))
+  if (f.type === 'is_null' || f.type === 'not_null') return true
   if (f.type === 'range') return (f.min != null && f.min !== '') || (f.max != null && f.max !== '')
   if (f.type === 'date_range') return (f.from != null && f.from !== '') || (f.to != null && f.to !== '')
   if (f.type === 'boolean') return f.value != null && f.value !== ''
-  if (f.type === 'multi_select') return Array.isArray(f.value) && f.value.length > 0
+  if (f.type === 'multi_select' || f.type === 'not_in') return Array.isArray(f.value) && f.value.length > 0
   return f.value != null && f.value !== ''
 }
 
@@ -31,15 +32,36 @@ export const useStore = create((set, get) => {
     // ── Schema ──────────────────────────────────────────────────────────────
     schema: [],
     schemaLoading: false,
+    sources: [],
+    selectedSource: 'AF.csv',
+
+    fetchSources: async () => {
+      try {
+        const res = await fetch(`${API}/sources`)
+        const data = await res.json()
+        set({ sources: data.sources || [] })
+      } catch (e) {
+        console.error('Sources fetch failed', e)
+      }
+    },
+
     fetchSchema: async () => {
+      const s = get()
       set({ schemaLoading: true })
       try {
-        const res  = await fetch(`${API}/schema`)
+        const url = new URL(`${API}/schema`, window.location.origin)
+        if (s.selectedSource) url.searchParams.set('source', s.selectedSource)
+        
+        const res  = await fetch(url)
         const data = await res.json()
         const fields = data.fields || []
         set({ schema: fields })
-        if (get().selectedColumns.length === 0 && fields.length > 0) {
-          const cols = fields.slice(0, 8).map(f => f.name)
+        
+        // Auto-select columns
+        if (fields.length > 0) {
+          // Select ALL for source-specific, or limit to 15 for global (All Files)
+          const limit = s.selectedSource ? fields.length : 15
+          const cols = fields.slice(0, limit).map(f => f.name)
           set({ selectedColumns: cols, columnOrder: cols })
         }
       } catch (e) {
@@ -47,6 +69,12 @@ export const useStore = create((set, get) => {
       } finally {
         set({ schemaLoading: false })
       }
+    },
+
+    setSource: async (source) => {
+      set({ selectedSource: source, page: 1 })
+      await get().fetchSchema()
+      get().query()
     },
 
     // ── Column Config ────────────────────────────────────────────────────────
@@ -127,11 +155,13 @@ export const useStore = create((set, get) => {
         if (def) {
           const groupNames = s.schema.filter(sf => sf.label === def.label).map(sf => sf.name)
           if (groupNames.length > 1) {
+            const isNegative = ['not_equals', 'not_in', 'is_null'].includes(f.type)
+            const groupOp = isNegative ? 'AND' : 'OR'
             return {
               type: 'nested',
               op: f.op || 'AND',
-              groupOp: 'OR',
-              children: groupNames.map(g => ({ ...f, field: g, op: 'OR' }))
+              groupOp: groupOp,
+              children: groupNames.map(g => ({ ...f, field: g, op: groupOp }))
             }
           }
         }
@@ -165,6 +195,15 @@ export const useStore = create((set, get) => {
         filters:     transformedFilters,
         q:           s.globalSearch?.trim() ? `*${s.globalSearch.trim()}*` : '*:*',
         dateCompare: s.dateCompare,
+      }
+
+      if (s.selectedSource) {
+        body.filters.push({
+          field: 'source_file_s',
+          type: 'equals',
+          value: s.selectedSource,
+          op: 'AND'
+        })
       }
 
       try {

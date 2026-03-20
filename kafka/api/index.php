@@ -76,6 +76,7 @@ switch (true) {
     case $uri === '/views'          && $method === 'POST':   handleSaveView();                     break;
     case $uri === '/views'          && $method === 'DELETE': handleDeleteView();                   break;
     case $uri === '/views/default'  && $method === 'POST':   handleSetDefaultView();               break;
+    case $uri === '/sources'        && $method === 'GET':    handleSources($solrUrl);              break;
     case $uri === '/produce'        && $method === 'POST':   handleProduce($kafkaBroker);          break;
     case $uri === '/health'         && $method === 'GET':    handleHealth($solrUrl);               break;
     default:
@@ -136,39 +137,88 @@ function handleQuery(string $solrUrl): void
     json($result);
 }
 
+// ── Sources ──────────────────────────────────────────────────────────────────
+function handleSources(string $solrUrl): void
+{
+    $params = [
+        'q'              => '*:*',
+        'rows'           => 0,
+        'facet'          => 'true',
+        'facet.field'    => 'source_file_s',
+        'facet.mincount' => 1,
+        'facet.limit'    => 1000,
+        'wt'             => 'json',
+    ];
+    $response = solrRequest($solrUrl . '/select', $params);
+    $data = json_decode($response, true);
+    
+    $sources = [];
+    $values = $data['facet_counts']['facet_fields']['source_file_s'] ?? [];
+    for ($i = 0; $i < count($values); $i += 2) {
+        $sources[] = $values[$i];
+    }
+    json(['sources' => $sources]);
+}
+
 // ── Schema ─────────────────────────────────────────────────────────────────────
 function handleSchema(string $solrUrl): void
 {
-    $excludedFields = ['id', 'score', '_version_', '_root_', '_nest_path_', '_nest_parent_'];
+    $excludedFields = ['id', 'score', '_version_', '_root_', '_nest_path_', '_nest_parent_', 'source_file_s'];
+    $source = $_GET['source'] ?? null;
 
-    $cKey = 'schema:v3';  // bumped — forces cache refresh
+    $cKey = 'schema:v7' . ($source ? ':' . md5($source) : ''); 
     $cached = cacheGet($cKey);
     if ($cached) { json($cached); return; }
-
-    // Sample 20 docs to collect ALL possible field names (some docs may have empty cols)
-    $sampleResp = solrGet($solrUrl . '/select?q=*:*&rows=20&wt=json');
-    $sampleData = json_decode($sampleResp, true);
-    $sampleDocs = $sampleData['response']['docs'] ?? [];
 
     $fields = [];
     $seen   = [];
 
-    foreach ($sampleDocs as $sampleDoc) {
-        foreach ($sampleDoc as $key => $val) {
-            if (str_starts_with($key, '_')) continue;
-            if (in_array($key, $excludedFields)) continue;
-            if (isset($seen[$key])) continue;
-            $seen[$key] = true;
+    if ($source) {
+        // Sample docs for THIS source to see its specific columns
+        // Use a larger sample (500) to catch all dynamic fields in the CSV
+        $q = 'source_file_s:"' . addslashes($source) . '"';
+        $sampleResp = solrGet($solrUrl . '/select?q=' . urlencode($q) . '&rows=500&wt=json');
+        $sampleData = json_decode($sampleResp, true);
+        $sampleDocs = $sampleData['response']['docs'] ?? [];
+        
+        if (empty($sampleDocs)) { json(['fields' => []]); return; }
+
+        foreach ($sampleDocs as $doc) {
+            foreach ($doc as $key => $val) {
+                if (str_starts_with($key, '_')) continue;
+                if (in_array($key, $excludedFields)) continue;
+                if (isset($seen[$key])) continue;
+                $seen[$key] = true;
+                $fields[] = [
+                    'name'       => $key,
+                    'label'      => formatLabel($key),
+                    'type'       => inferType($key),
+                    'sortable'   => true,
+                    'filterable' => true,
+                ];
+            }
+        }
+    } else {
+        // Global schema using Luke (fastest/most accurate for full core)
+        $lukeResp = solrGet($solrUrl . '/admin/luke?numTerms=0&wt=json');
+        $lukeData = json_decode($lukeResp, true);
+        $lukeFields = $lukeData['fields'] ?? [];
+
+        foreach ($lukeFields as $name => $info) {
+            if (str_starts_with($name, '_')) continue;
+            if (in_array($name, $excludedFields)) continue;
+            $seen[$name] = true;
             $fields[] = [
-                'name'       => $key,
-                'label'      => formatLabel($key),
-                'type'       => inferType($key),
+                'name'       => $name,
+                'label'      => formatLabel($name),
+                'type'       => inferType($name),
                 'sortable'   => true,
                 'filterable' => true,
             ];
         }
     }
 
+    // Fallback if Luke is somehow restricted
     if (empty($fields)) {
         $response = solrGet($solrUrl . '/schema/fields?wt=json&indent=false');
         $data = json_decode($response, true);
@@ -176,6 +226,7 @@ function handleSchema(string $solrUrl): void
             $name = $field['name'];
             if (str_starts_with($name, '_')) continue;
             if (in_array($name, $excludedFields)) continue;
+            if (isset($seen[$name])) continue;
             $fields[] = [
                 'name'       => $name,
                 'label'      => formatLabel($name),
@@ -400,13 +451,19 @@ function buildSingleFilter(array $filter): ?string
             if ($childFq) $parts[] = $childFq;
         }
         if (empty($parts)) return null;
-        return '(' . implode(" $op ", $parts) . ')';
+        $groupOp = $filter['groupOp'] ?? $op;
+        return '(' . implode(" $groupOp ", $parts) . ')';
     }
 
-    if (!$field || $value === null || $value === '') {
-        // range/date_range might have no value but min/max/from/to
-        if ($type !== 'range' && $type !== 'date_range') return null;
+    if (!$field || ($value === null || $value === '') && !in_array($type, ['range', 'date_range', 'is_null', 'not_null'])) {
+        return null;
     }
+
+    $isDate = $field && inferType($field) === 'date';
+    $fmtValue = function($v) use ($isDate) {
+        if ($isDate && $v !== '*') return date('Y-m-d\TH:i:s\Z', strtotime($v));
+        return $v;
+    };
 
     switch ($type) {
         case 'range':
@@ -427,17 +484,50 @@ function buildSingleFilter(array $filter): ?string
             if ($to   !== '*') $to   = date('Y-m-d\TH:i:s\Z', strtotime($to));
             return "$field:[$from TO $to]";
 
+        case 'is_null':  return "(*:* -$field:[* TO *])";
+        case 'not_null': return "$field:[* TO *]";
+
         case 'multi_select':
-            $vals    = is_array($value) ? $value : [$value];
+        case 'not_in':
+            $vals = is_array($value) ? $value : [$value];
             if (empty($vals)) return null;
             $escaped = array_map(fn($v) => '"' . addslashes($v) . '"', $vals);
-            return "$field:(" . implode(' OR ', $escaped) . ')';
+            $query = "$field:(" . implode(' OR ', $escaped) . ')';
+            return $type === 'not_in' ? "(*:* -$query)" : $query;
 
         case 'boolean':
             return "$field:" . ($value ? 'true' : 'false');
 
-        default: // text
-            if ($value === null || $value === '') return null;
+        case 'equals':
+            $v = $fmtValue($value);
+            $isNum = in_array(inferType($field), ['integer', 'float']);
+            if ($isNum || $isDate) return "$field:" . addslashes($v);
+            return "$field:\"" . addslashes($v) . "\"";
+            
+        case 'not_equals':
+            $v = $fmtValue($value);
+            $isNum = in_array(inferType($field), ['integer', 'float']);
+            if ($isNum || $isDate) return "(*:* -$field:" . addslashes($v) . ")";
+            return "(*:* -$field:\"" . addslashes($v) . "\")";
+            
+        case 'gt':
+        case 'after':
+            return "$field:{" . $fmtValue($value) . " TO *]";
+            
+        case 'gte':
+            return "$field:[" . $fmtValue($value) . " TO *]";
+            
+        case 'lt':
+        case 'before':
+            return "$field:[* TO " . $fmtValue($value) . "}";
+            
+        case 'lte':
+            return "$field:[* TO " . $fmtValue($value) . "]";
+
+        case 'starts_with': return "$field:" . addslashes($value) . '*';
+        case 'ends_with':   return "$field:*" . addslashes($value);
+        case 'text':
+        default:
             return "$field:*" . addslashes($value) . '*';
     }
 }

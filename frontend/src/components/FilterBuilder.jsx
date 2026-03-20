@@ -16,10 +16,51 @@ const TYPE_META = {
 }
 
 function defaultFilterType(schemaType) {
-  if (schemaType === 'integer' || schemaType === 'float') return 'range'
-  if (schemaType === 'date')    return 'date_range'
+  if (schemaType === 'integer' || schemaType === 'float') return 'equals'
+  if (schemaType === 'date')    return 'equals'
   if (schemaType === 'boolean') return 'boolean'
   return 'text'
+}
+
+function getAvailableTypes(fieldMeta) {
+  if (!fieldMeta) return [{ value: 'text', label: 'Contains' }]
+  if (fieldMeta.type === 'string') {
+    return [
+      { value: 'text', label: 'Contains' },
+      { value: 'equals', label: 'Equals' },
+      { value: 'not_equals', label: 'Does Not Equal' },
+      { value: 'starts_with', label: 'Starts With' },
+      { value: 'ends_with', label: 'Ends With' },
+      { value: 'multi_select', label: 'Is One Of (IN)' },
+      { value: 'not_in', label: 'Is Not One Of (NOT IN)' },
+      { value: 'is_null', label: 'Is Empty (NULL)' },
+      { value: 'not_null', label: 'Is Not Empty (NOT NULL)' }
+    ]
+  }
+  if (fieldMeta.type === 'integer' || fieldMeta.type === 'float') {
+    return [
+      { value: 'equals', label: 'Equals (=)' },
+      { value: 'not_equals', label: 'Does Not Equal (!=)' },
+      { value: 'gt', label: 'Greater Than (>)' },
+      { value: 'gte', label: 'Greater or Equal (>=)' },
+      { value: 'lt', label: 'Less Than (<)' },
+      { value: 'lte', label: 'Less or Equal (<=)' },
+      { value: 'range', label: 'Between / Range' },
+      { value: 'is_null', label: 'Is Empty (NULL)' },
+      { value: 'not_null', label: 'Is Not Empty (NOT NULL)' }
+    ]
+  }
+  if (fieldMeta.type === 'date') {
+    return [
+      { value: 'equals', label: 'On Date' },
+      { value: 'before', label: 'Before' },
+      { value: 'after', label: 'After' },
+      { value: 'date_range', label: 'Between / Date Range' },
+      { value: 'is_null', label: 'Is Empty (NULL)' },
+      { value: 'not_null', label: 'Is Not Empty (NOT NULL)' }
+    ]
+  }
+  return [{ value: 'boolean', label: 'Is' }, { value: 'is_null', label: 'Is Empty (NULL)' }, { value: 'not_null', label: 'Is Not Empty (NOT NULL)' }]
 }
 
 // ── Dropdown wrapper ──────────────────────────────────────────────────────────
@@ -111,7 +152,14 @@ function FieldPicker({ value, schema, onChange }) {
 }
 
 // ── Filter value input per type ───────────────────────────────────────────────
-function FilterValueInput({ filter, facetOptions, onUpdate }) {
+function FilterValueInput({ filter, facetOptions, onUpdate, schemaType }) {
+  if (filter.type === 'is_null' || filter.type === 'not_null') {
+    return (
+      <div className="fb-no-facets">
+        <AlertCircle size={12} /><span>No value required</span>
+      </div>
+    )
+  }
   switch (filter.type) {
     case 'range':
       return (
@@ -143,6 +191,7 @@ function FilterValueInput({ filter, facetOptions, onUpdate }) {
         </div>
       )
     case 'multi_select':
+    case 'not_in':
       if (!facetOptions || facetOptions.length === 0) {
         return (
           <div className="fb-no-facets">
@@ -169,8 +218,9 @@ function FilterValueInput({ filter, facetOptions, onUpdate }) {
         </div>
       )
     default:
+      const inputType = schemaType === 'integer' || schemaType === 'float' ? 'number' : schemaType === 'date' ? 'date' : 'text'
       return (
-        <input className="fb-input fb-text-input" placeholder="Type value to search…"
+        <input className={`fb-input ${inputType === 'date' ? 'fb-date-input' : 'fb-text-input'}`} type={inputType} placeholder="Value..."
           value={filter.value ?? ''} onChange={e => onUpdate({ value: e.target.value })} />
       )
   }
@@ -205,15 +255,7 @@ function NestedFilterRow({ child, childIdx, parentIdx, schema, facets, updateFil
     updateFilter(parentIdx, { children: newChildren })
   }
 
-  const availableTypes = fieldMeta
-    ? (fieldMeta.type === 'string'
-        ? [{ value: 'text', label: 'Contains' }, { value: 'multi_select', label: 'Is One Of' }]
-        : fieldMeta.type === 'integer' || fieldMeta.type === 'float'
-          ? [{ value: 'range', label: 'Number Range' }]
-          : fieldMeta.type === 'date'
-            ? [{ value: 'date_range', label: 'Date Range' }]
-            : [{ value: 'boolean', label: 'Is' }])
-    : [{ value: 'text', label: 'Contains' }]
+  const availableTypes = getAvailableTypes(fieldMeta)
 
   return (
     <div className="fb-nested-row">
@@ -236,7 +278,7 @@ function NestedFilterRow({ child, childIdx, parentIdx, schema, facets, updateFil
       )}
       {child.field && (
         <div style={{ flex: 1 }}>
-          <FilterValueInput filter={child} facetOptions={facetOptions}
+          <FilterValueInput filter={child} facetOptions={facetOptions} schemaType={fieldMeta?.type}
             onUpdate={handleChildUpdate} />
         </div>
       )}
@@ -261,7 +303,7 @@ function FilterCard({ idx, filter, schema, facets, updateFilter, removeFilter, f
 
   const handleTypeChange = (newType) => {
     updateFilter(idx, { type: newType, value: '', min: '', max: '', from: '', to: '' })
-    if (newType === 'multi_select' && filter.field) fetchFacets([filter.field])
+    if ((newType === 'multi_select' || newType === 'not_in') && filter.field) fetchFacets([filter.field])
   }
 
   const addNestedChild = () => {
@@ -269,15 +311,7 @@ function FilterCard({ idx, filter, schema, facets, updateFilter, removeFilter, f
     updateFilter(idx, { children })
   }
 
-  const availableTypes = fieldMeta
-    ? (fieldMeta.type === 'string'
-        ? [{ value: 'text', label: 'Contains' }, { value: 'multi_select', label: 'Is One Of' }]
-        : fieldMeta.type === 'integer' || fieldMeta.type === 'float'
-          ? [{ value: 'range', label: 'Number Range' }]
-          : fieldMeta.type === 'date'
-            ? [{ value: 'date_range', label: 'Date Range' }]
-            : [{ value: 'boolean', label: 'Is' }])
-    : [{ value: 'text', label: 'Contains' }]
+  const availableTypes = getAvailableTypes(fieldMeta)
 
   // Nested group card
   if (filter.type === 'nested') {
@@ -343,7 +377,7 @@ function FilterCard({ idx, filter, schema, facets, updateFilter, removeFilter, f
       </div>
       <div className="fb-card-body">
         {filter.field ? (
-          <FilterValueInput filter={filter} facetOptions={facetOptions}
+          <FilterValueInput filter={filter} facetOptions={facetOptions} schemaType={fieldMeta?.type}
             onUpdate={(patch) => updateFilter(idx, patch)} />
         ) : (
           <span className="fb-card-hint">Select a field above to configure</span>
@@ -355,15 +389,17 @@ function FilterCard({ idx, filter, schema, facets, updateFilter, removeFilter, f
 
 // ── Active pills summary ──────────────────────────────────────────────────────
 function ActivePills({ filters, schema, onRemove }) {
-  const active = filters.map((f, i) => ({ f, i })).filter(({ f }) => {
+  const isFilterActive = (f) => {
     if (!f.field && f.type !== 'nested') return false
-    if (f.type === 'nested') return f.children?.some(c => c.field)
+    if (f.type === 'nested') return f.children?.some(c => isFilterActive(c))
+    if (f.type === 'is_null' || f.type === 'not_null') return true
     if (f.type === 'range') return (f.min != null && f.min !== '') || (f.max != null && f.max !== '')
     if (f.type === 'date_range') return f.from || f.to
     if (f.type === 'boolean') return f.value != null && f.value !== ''
-    if (f.type === 'multi_select') return Array.isArray(f.value) && f.value.length > 0
+    if (f.type === 'multi_select' || f.type === 'not_in') return Array.isArray(f.value) && f.value.length > 0
     return f.value != null && f.value !== ''
-  })
+  }
+  const active = filters.map((f, i) => ({ f, i })).filter(({ f }) => isFilterActive(f))
   if (active.length === 0) return null
   return (
     <div className="fb-pills-row">
@@ -371,10 +407,12 @@ function ActivePills({ filters, schema, onRemove }) {
         const fieldLabel = f.type === 'nested' ? 'Group' : (schema.find(s => s.name === f.field)?.label || f.field)
         let val = ''
         if (f.type === 'nested') val = `${f.children?.length || 0} conditions`
+        else if (f.type === 'is_null') val = 'IS NULL'
+        else if (f.type === 'not_null') val = 'NOT NULL'
         else if (f.type === 'range') val = `${f.min ?? '…'} – ${f.max ?? '…'}`
         else if (f.type === 'date_range') val = `${f.from ?? '…'} – ${f.to ?? '…'}`
         else if (f.type === 'boolean') val = String(f.value)
-        else if (f.type === 'multi_select') val = Array.isArray(f.value) ? f.value.join(', ') : ''
+        else if (f.type === 'multi_select' || f.type === 'not_in') val = Array.isArray(f.value) ? f.value.join(', ') : ''
         else val = f.value
         return (
           <span key={i} className="fb-pill">
@@ -446,15 +484,17 @@ export default function FilterBuilder() {
   } = useStore()
   const [expanded, setExpanded] = useState(true)
 
-  const activeCount = filters.filter(f => {
+  const isFilterActive = (f) => {
     if (!f.field && f.type !== 'nested') return false
-    if (f.type === 'nested') return f.children?.some(c => c.field)
+    if (f.type === 'nested') return f.children?.some(c => isFilterActive(c))
+    if (f.type === 'is_null' || f.type === 'not_null') return true
     if (f.type === 'range') return (f.min != null && f.min !== '') || (f.max != null && f.max !== '')
     if (f.type === 'date_range') return f.from || f.to
     if (f.type === 'boolean') return f.value != null && f.value !== ''
-    if (f.type === 'multi_select') return Array.isArray(f.value) && f.value.length > 0
+    if (f.type === 'multi_select' || f.type === 'not_in') return Array.isArray(f.value) && f.value.length > 0
     return f.value != null && f.value !== ''
-  }).length
+  }
+  const activeCount = filters.filter(isFilterActive).length
 
   const usableSchema = schema.filter(f =>
     !f.name.startsWith('_') && f.name !== 'id' && f.name !== 'score'

@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react'
 import { useStore } from '../store'
-import { Eye, EyeOff, GripVertical, Search, ChevronDown, ChevronRight, Layers } from 'lucide-react'
+import { Eye, EyeOff, GripVertical, Search, ChevronDown, ChevronRight, Layers, FileText } from 'lucide-react'
 
 const TYPE_ACCENT = {
   string:  '#6366f1',
@@ -25,7 +25,10 @@ function inferGroup(field) {
 }
 
 export default function Sidebar() {
-  const { schema, selectedColumns, setSelectedColumns, columnOrder, setColumnOrder } = useStore()
+  const { 
+    schema, selectedColumns, setSelectedColumns, columnOrder, setColumnOrder,
+    sources, selectedSource, setSource
+  } = useStore()
   const [search,      setSearch]      = useState('')
   const [dragging,    setDragging]    = useState(null)
   const [dragOver,    setDragOver]    = useState(null)
@@ -126,6 +129,23 @@ export default function Sidebar() {
 
   return (
     <div className="sidebar-body">
+      <div className="sidebar-source-wrap">
+        <label className="sidebar-source-label">Active Data Source</label>
+        <div className="sidebar-source-input-group">
+          <FileText size={14} className="sidebar-source-icon" />
+          <select 
+            className="sidebar-source-select"
+            value={selectedSource}
+            onChange={(e) => setSource(e.target.value)}
+          >
+            <option value="">All Source Files</option>
+            {sources.map(s => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
       {/* Search */}
       <div className="sidebar-search-wrap">
         <Search size={13} className="sidebar-search-icon" />

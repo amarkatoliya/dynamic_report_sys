@@ -2,7 +2,7 @@ import React, { useState, useCallback } from 'react'
 import { useStore } from '../store'
 import {
   Menu, RefreshCw, Download, Table2, BarChart2,
-  Upload, ChevronDown, Check, Layers, Search, X
+  Upload, ChevronDown, Check, Layers, Search, X, FileText
 } from 'lucide-react'
 
 // ── Excel export (uses SheetJS via CDN-free approach — pure JS XLSX) ──────────
@@ -39,6 +39,7 @@ export default function TopBar() {
     results, selectedColumns, schema,
     globalSearch, setGlobalSearch,
     timing, cached,
+    sources, selectedSource, setSource,
   } = useStore()
 
   const [showExport, setShowExport]   = useState(false)
