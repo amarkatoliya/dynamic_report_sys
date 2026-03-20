@@ -124,6 +124,7 @@ function handleQuery(string $solrUrl): void
     if ($cached) { json($cached); return; }
 
     $response = solrRequest($solrUrl . '/select', $params);
+    error_log("Solr Query: " . $solrUrl . "/select?" . http_build_query($params));
     $data = json_decode($response, true);
 
     $result = [
@@ -579,8 +580,8 @@ function buildSingleFilter(array $filter): ?string
             if ($from === '' || $from === null) $from = '*';
             if ($to   === '' || $to   === null) $to   = '*';
             if ($from === '*' && $to === '*') return null;
-            if ($from !== '*') $from = date('Y-m-d\TH:i:s\Z', strtotime($from));
-            if ($to   !== '*') $to   = date('Y-m-d\TH:i:s\Z', strtotime($to));
+            if ($from !== '*') $from = date('Y-m-d\T00:00:00\Z', strtotime($from));
+            if ($to   !== '*') $to   = date('Y-m-d\T23:59:59\Z', strtotime($to));
             return "$field:[$from TO $to]";
 
         case 'is_null':  return "(*:* -$field:[* TO *])";
