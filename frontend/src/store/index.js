@@ -213,6 +213,7 @@ export const useStore = create((set, get) => {
     sort: 'score desc',
     loading:       false,
     compareResult: null,
+    error: null, // New: track API errors
 
     setPage: (p) => {
       // If moving forward by 1 page, we can potentially use cursor, 
@@ -304,8 +305,14 @@ export const useStore = create((set, get) => {
           body:    JSON.stringify(body),
         })
         if (!res) return
+        
         const data = await res.json()
         
+        if (!res.ok) {
+           set({ error: data.error || `Server error (${res.status})`, results: [], total: 0, loading: false })
+           return
+        }
+
         set({ 
           results:       data.docs || [], 
           total:         data.total || 0,
@@ -313,9 +320,11 @@ export const useStore = create((set, get) => {
           highlights:    data.highlights || {},
           timing:        data.timing,
           compareResult: body.dateCompare ? data : null,
+          error:         null, // Clear error on success
         })
       } catch (e) {
         console.error('Query failed', e)
+        set({ error: e.message || 'An unexpected error occurred', results: [], total: 0 })
       } finally {
         set({ loading: false })
       }

@@ -172,8 +172,8 @@ function handleQuery(string $solrUrl): void
     $cursor = $body['cursor'] ?? null;
     $sort   = $body['sort'] ?? 'score desc';
 
-    // Must include unique key for cursorMark
-    if (!str_contains($sort, 'id')) {
+    // Must include unique key for cursorMark – use regex for precise whole-word match
+    if (!preg_match('/\bid\b/', $sort)) {
         $sort .= ', id asc';
     }
 
@@ -209,6 +209,12 @@ function handleQuery(string $solrUrl): void
     AuditLogger::log('QUERY_EXECUTED', $user['username'], 'SUCCESS', ['search' => $body['search'] ?? '*:*']);
 
     $res = json_decode($response, true);
+    if (isset($res['error'])) {
+        http_response_code(400);
+        json(['error' => 'Solr Error: ' . ($res['error']['msg'] ?? 'Unknown'), 'params' => $params]);
+        return;
+    }
+
     $result = [
         'total'      => $res['response']['numFound'] ?? 0,
         'page'       => $page,
@@ -871,8 +877,13 @@ function solrRequest(string $url, array $params): string
     ]);
     $resp = curl_exec($ch);
     $err  = curl_error($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
+    
     if ($err) throw new \RuntimeException("cURL: $err");
+    
+    // If Solr returns an error (4xx/5xx), return the response so we can parse the error message
+    // but the caller (handleQuery) should check the status or the content.
     return $resp;
 }
 

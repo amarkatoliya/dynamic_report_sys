@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useMemo } from 'react'
 import { useStore } from '../store'
-import { ArrowUp, ArrowDown, ArrowUpDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
+import { ArrowUp, ArrowDown, ArrowUpDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, X } from 'lucide-react'
 
 const ROW_HEIGHT = 38 // px per row
 const OVERSCAN   = 5  // extra rows above/below viewport
@@ -31,7 +31,7 @@ export default function DataTable() {
   const {
     results, total, loading, page, rows, setPage,
     selectedColumns, columnOrder, columnWidths, setColumnWidth,
-    sort, setSort, schema, compareResult,
+    sort, setSort, schema, compareResult, error
   } = useStore()
 
   const [resizing, setResizing] = useState(null)
@@ -184,6 +184,22 @@ export default function DataTable() {
 
   return (
     <div className="table-wrap">
+      {/* Error Alert */}
+      {error && (
+        <div className="alert alert-error animate-slide-down" style={{ margin: '0 16px 16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 18 }}>⚠️</span>
+            <div style={{ flex: 1 }}>
+               <div style={{ fontWeight: 600 }}>Query Error</div>
+               <div style={{ opacity: 0.8, fontSize: 13 }}>{error}</div>
+            </div>
+            <button className="btn btn-sm btn-icon" onClick={() => useStore.setState({ error: null })}>
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Scrollable table with virtual rendering */}
       <div className="table-scroll" ref={scrollRef} onScroll={onScroll}>
         {loading ? (
