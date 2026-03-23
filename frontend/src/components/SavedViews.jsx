@@ -2,11 +2,15 @@ import React, { useState } from 'react'
 import { useStore } from '../store'
 import {
   BookMarked, X, Save, Trash2, Star, Check,
-  FolderOpen, Share2, History, Crown, Copy
+  FolderOpen, Share2, History, Crown, Copy,
+  Calendar, Clock, Mail
 } from 'lucide-react'
 
 export default function SavedViews() {
-  const { views, saveView, loadView, deleteView, setDefaultView } = useStore()
+  const { 
+    views, saveView, loadView, deleteView, setDefaultView,
+    schedules, fetchSchedules, saveSchedule, deleteSchedule
+  } = useStore()
   const [open, setOpen]       = useState(false)
   const [saving, setSaving]   = useState(false)
   const [newName, setNewName] = useState('')
@@ -14,6 +18,9 @@ export default function SavedViews() {
   const [makeDefault, setMakeDefault] = useState(false)
   const [shareId, setShareId] = useState(null)   // view id being "shared"
   const [tab, setTab]         = useState('views') // 'views' | 'history'
+  const [schedulingView, setSchedulingView] = useState(null) // view for modal
+  const [schedEmail, setSchedEmail] = useState('')
+  const [schedFreq, setSchedFreq]   = useState('daily')
 
   const handleSave = async () => {
     if (!newName.trim()) return
@@ -104,6 +111,13 @@ export default function SavedViews() {
                     onDelete={() => deleteView(view.id)}
                     onSetDefault={() => handleSetDefault(view.id)}
                     onShare={() => handleShare(view)}
+                    onSchedule={() => {
+                        const existing = (schedules || []).find(s => s.view_id === view.id)
+                        setSchedulingView(view)
+                        setSchedEmail(existing?.email || '')
+                        setSchedFreq(existing?.frequency || 'daily')
+                    }}
+                    schedule={(schedules || []).find(s => s.view_id === view.id)}
                     shareId={shareId}
                   />
                 ))
@@ -130,31 +144,71 @@ export default function SavedViews() {
             </div>
           </div>
         )}
+
+        {/* Schedule Modal Overlay */}
+        {schedulingView && (
+          <div className="schedule-modal-overlay animate-fade-in" onClick={() => setSchedulingView(null)}>
+            <div className="schedule-modal" onClick={e => e.stopPropagation()}>
+              <div className="modal-header">
+                <Calendar size={18} className="icon-accent" />
+                <h3>Schedule Report</h3>
+                <button className="btn btn-icon btn-sm" onClick={() => setSchedulingView(null)}><X size={15} /></button>
+              </div>
+              <div className="modal-body">
+                <p className="modal-sub">View: <strong>{schedulingView.name}</strong></p>
+                
+                <div className="form-group">
+                  <label><Mail size={12} /> Email Destination</label>
+                  <input className="input" type="email" placeholder="mentor@example.com"
+                    value={schedEmail} onChange={e => setSchedEmail(e.target.value)} />
+                </div>
+
+                <div className="form-group">
+                  <label><Clock size={12} /> Frequency</label>
+                  <select className="input" value={schedFreq} onChange={e => setSchedFreq(e.target.value)}>
+                    <option value="hourly">Hourly (Testing)</option>
+                    <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
+                  </select>
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button className="btn" onClick={() => setSchedulingView(null)}>Cancel</button>
+                <button className="btn btn-primary" onClick={handleScheduleSave}>Save Schedule</button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </>
   )
 }
 
-function ViewCard({ view, onLoad, onDelete, onSetDefault, onShare, shareId }) {
+function ViewCard({ view, onLoad, onDelete, onSetDefault, onShare, onSchedule, schedule, shareId }) {
   return (
     <div className="view-card">
       <div className="view-card-body">
         <div className="view-card-name">
           {view.is_default && <Crown size={12} style={{ color: '#f59e0b', marginRight: 5 }} />}
           {view.name}
+          {schedule && <Calendar size={12} style={{ color: 'var(--success)', marginLeft: 8 }} title={`Scheduled: ${schedule.frequency}`} />}
         </div>
         <div className="view-card-meta">
           {view.columns?.length > 0 && <span className="badge">{view.columns.length} cols</span>}
           {view.filters?.length > 0 && <span className="badge badge-accent">{view.filters.length} filters</span>}
           {view.version > 1 && <span className="badge">v{view.version}</span>}
-          {view.shared && <span className="badge badge-success"><Share2 size={9} /> Shared</span>}
           {view.is_default && <span className="badge badge-success"><Star size={9} /> Default</span>}
+          {schedule && <span className="badge badge-success"><Clock size={9} /> {schedule.frequency}</span>}
           <span className="view-card-date">{new Date(view.created_at).toLocaleDateString()}</span>
         </div>
       </div>
       <div className="view-card-actions">
         <button className="btn btn-sm btn-primary" onClick={onLoad}>Load</button>
-        <button className="btn btn-icon btn-sm" onClick={onShare} title="Copy config to clipboard"
+        <button className="btn btn-icon btn-sm" onClick={onSchedule} title="Schedule/Email report"
+           style={{ color: schedule ? 'var(--success)' : undefined }}>
+          <Calendar size={13} />
+        </button>
+        <button className="btn btn-icon btn-sm" onClick={onShare} title="Copy config"
           style={{ color: shareId === view.id ? 'var(--success)' : undefined }}>
           {shareId === view.id ? <Check size={13} /> : <Share2 size={13} />}
         </button>

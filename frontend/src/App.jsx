@@ -8,6 +8,7 @@ import FilterBuilder from './components/FilterBuilder'
 import SavedViews from './components/SavedViews'
 import StatusBar from './components/StatusBar'
 import Login from './components/Login'
+import NotificationSystem from './components/NotificationSystem'
 import './App.css'
 
 export default function App() {
@@ -62,6 +63,7 @@ export default function App() {
 
       {/* Saved Views Drawer */}
       <SavedViews />
+      <NotificationSystem />
     </div>
   )
 }

@@ -226,12 +226,30 @@ while (true) {
                     }
                     $totalIndexed += count($batch);
                     $log->info("📦 Total indexed: $totalIndexed");
+
+                    // Update ingestion status
+                    $statusFile = __DIR__ . '/storage/ingestion_status.json';
+                    if (file_exists($statusFile)) {
+                        $status = json_decode(file_get_contents($statusFile), true);
+                        $status['indexed_rows'] = $totalIndexed;
+                        $status['status'] = ($status['total_rows'] > 0 && $totalIndexed >= $status['total_rows']) ? 'completed' : 'indexing';
+                        file_put_contents($statusFile, json_encode($status));
+                    }
                 } else {
                     // Send entire batch to DLQ on failure
                     foreach ($batch as $doc) {
                         sendToDlq($dlqProducer, $dlqKafkaTopic, json_encode($doc), 'solr_batch_failure', $log);
                     }
                     $totalErrors += count($batch);
+                    
+                    // Update status with error
+                    $statusFile = __DIR__ . '/storage/ingestion_status.json';
+                    if (file_exists($statusFile)) {
+                        $status = json_decode(file_get_contents($statusFile), true);
+                        $status['status'] = 'error';
+                        $status['error']  = "Failed to index a batch of " . count($batch) . " rows.";
+                        file_put_contents($statusFile, json_encode($status));
+                    }
                 }
                 $batch     = [];
                 $msgBuffer = [];
@@ -248,6 +266,15 @@ while (true) {
                     }
                     $totalIndexed += count($batch);
                     $log->info("📦 Final flush: $totalIndexed total");
+
+                    // Update final ingestion status
+                    $statusFile = __DIR__ . '/storage/ingestion_status.json';
+                    if (file_exists($statusFile)) {
+                        $status = json_decode(file_get_contents($statusFile), true);
+                        $status['indexed_rows'] = $totalIndexed;
+                        $status['status'] = 'completed';
+                        file_put_contents($statusFile, json_encode($status));
+                    }
                 }
                 $batch     = [];
                 $msgBuffer = [];

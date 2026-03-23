@@ -101,8 +101,19 @@ $csvFiles = glob($csvFolder . '/*.csv');
 
 if (empty($csvFiles)) {
     $log->warning("⚠️  No CSV files found in: $csvFolder");
+    file_put_contents(__DIR__ . '/storage/ingestion_status.json', json_encode(['status' => 'idle', 'error' => 'No files found']));
     exit(0);
 }
+
+// ── Clear previous status ──
+file_put_contents(__DIR__ . '/storage/ingestion_status.json', json_encode([
+    'status' => 'starting',
+    'total_files' => count($csvFiles),
+    'current_file' => '',
+    'processed_rows' => 0,
+    'total_rows' => 0,
+    'timestamp' => time()
+]));
 
 $totalSent = 0;
 $totalErrors = 0;
@@ -125,6 +136,27 @@ foreach ($csvFiles as $csvFile) {
     }
 
     $header = array_map('trim', $rawHeader);
+    
+    // Count total rows for progress bar (this is "deep" implementation)
+    $lineCount = 0;
+    $countHandle = fopen($csvFile, 'r');
+    if ($countHandle) {
+        while (!feof($countHandle)) {
+            $lineCount += substr_count(fread($countHandle, 8192), "\n");
+        }
+        fclose($countHandle);
+    }
+    // Subtract 1 for header
+    $fileTotalRows = max(0, $lineCount - 1);
+
+    file_put_contents(__DIR__ . '/storage/ingestion_status.json', json_encode([
+        'status' => 'producing',
+        'current_file' => $fileName,
+        'total_rows' => $fileTotalRows,
+        'produced_rows' => 0,
+        'indexed_rows' => 0,
+        'timestamp' => time()
+    ]));
 
     // Schema validation
     if (!validateSchema($header)) {
@@ -173,6 +205,11 @@ foreach ($csvFiles as $csvFile) {
             $producer->flush(10000);
             $log->info("📤 Flushed batch", ['file' => $fileName, 'count' => $count]);
             $pending = 0;
+            
+            // Update status
+            $status = json_decode(file_get_contents(__DIR__ . '/storage/ingestion_status.json'), true);
+            $status['produced_rows'] = $count;
+            file_put_contents(__DIR__ . '/storage/ingestion_status.json', json_encode($status));
         }
     }
 

@@ -214,6 +214,10 @@ export const useStore = create((set, get) => {
     loading:       false,
     compareResult: null,
     error: null, // New: track API errors
+    ingestionStatus: null, // { status, current, total, ... }
+    schedules: [], // List of report schedules
+    notifications: [], // [{ id, type, message }]
+    ingestionStatus: null, // { status, current, total, ... }
 
     setPage: (p) => {
       // If moving forward by 1 page, we can potentially use cursor, 
@@ -328,6 +332,55 @@ export const useStore = create((set, get) => {
       } finally {
         set({ loading: false })
       }
+    },
+
+    // ── Ingestion Progress (SSE) ───────────────────────────────────────────
+    startIngestionPoll: () => {
+      // Use existing EventSource if active
+      if (window._ingestionES) return
+
+      const es = new EventSource(`${API}/events.php`)
+      window._ingestionES = es
+
+      es.onmessage = (e) => {
+        const data = JSON.parse(e.data)
+        set({ ingestionStatus: data })
+
+        if (data.status === 'completed') {
+          es.close()
+          window._ingestionES = null
+          get().addNotification('success', 'Data ingestion completed successfully.')
+          setTimeout(() => {
+            get().query()
+            set({ ingestionStatus: null })
+          }, 5000)
+        } else if (data.status === 'error') {
+          es.close()
+          window._ingestionES = null
+          get().addNotification('error', data.error || 'Ingestion failed.')
+          set({ ingestionStatus: null })
+        } else if (data.status === 'idle') {
+           es.close()
+           window._ingestionES = null
+        }
+      }
+
+      es.onerror = () => {
+        es.close()
+        window._ingestionES = null
+        set({ ingestionStatus: null })
+        // We don't toast on error because browser reconnects automatically usually
+      }
+    },
+
+    // ── Notifications (Part 3.3) ─────────────────────────────────────────────
+    addNotification: (type, message) => {
+      const id = Date.now()
+      set(s => ({ notifications: [...s.notifications, { id, type, message }] }))
+      setTimeout(() => get().removeNotification(id), 6000)
+    },
+    removeNotification: (id) => {
+      set(s => ({ notifications: s.notifications.filter(n => n.id !== id) }))
     },
 
     // ── Export ──────────────────────────────────────────────────────────────
@@ -500,6 +553,39 @@ export const useStore = create((set, get) => {
         if (!res) return
         const data = await res.json()
         set({ auditLogs: data.logs || [] })
+      } catch (e) {}
+    },
+
+    // ── Schedules (Part 3.2) ──────────────────────────────────────────────────
+    fetchSchedules: async () => {
+      try {
+        const res = await get()._fetch(`${API}/schedules`)
+        if (!res) return
+        const data = await res.json()
+        set({ schedules: data.schedules || [] })
+      } catch (e) {}
+    },
+    saveSchedule: async (sched) => {
+      try {
+        const res = await get()._fetch(`${API}/schedules`, {
+          method: 'POST',
+          body: JSON.stringify(sched)
+        })
+        if (res) {
+          await get().fetchSchedules()
+          return true
+        }
+      } catch (e) {}
+      return false
+    },
+    deleteSchedule: async (id) => {
+      try {
+        const res = await get()._fetch(`${API}/schedules?id=${id}`, {
+          method: 'DELETE'
+        })
+        if (res) {
+          set({ schedules: get().schedules.filter(x => x.id !== id) })
+        }
       } catch (e) {}
     },
 

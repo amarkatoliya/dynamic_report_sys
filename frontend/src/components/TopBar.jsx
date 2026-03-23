@@ -42,7 +42,8 @@ export default function TopBar() {
     globalSearch, setGlobalSearch,
     timing, cached,
     sources, selectedSource, setSource,
-    user, logout, exportAll
+    user, logout, exportAll,
+    ingestionStatus, startIngestionPoll
   } = useStore()
 
   const [showExport, setShowExport]   = useState(false)
@@ -76,7 +77,8 @@ export default function TopBar() {
     try {
       await fetch('/api/produce', { method: 'POST' })
       setTriggered(true)
-      setTimeout(() => { setTriggered(false); _doQuery() }, 3000)
+      startIngestionPoll() // NEW: Start tracking progress live
+      setTimeout(() => { setTriggered(false) }, 5000)
     } finally {
       setTriggering(false)
     }
@@ -138,6 +140,32 @@ export default function TopBar() {
           )}
         </div>
       </div>
+
+      {/* Ingestion Progress Bar (Part 3.1) */}
+      {ingestionStatus && ingestionStatus.status !== 'idle' && (
+        <div className="ingestion-status-overlay animate-slide-down">
+          <div className="ingestion-status-bar">
+            <div className="status-header">
+              <span className="pulse-dot"></span>
+              <span className="status-text">
+                {ingestionStatus.status === 'producing' ? '📤 Extracting CSV...' : '📥 Indexing to Solr...'}
+                <span className="file-name">({ingestionStatus.current_file})</span>
+              </span>
+              <span className="status-count">
+                {ingestionStatus.indexed_rows || ingestionStatus.produced_rows} / {ingestionStatus.total_rows}
+              </span>
+            </div>
+            <div className="status-track">
+              <div className="status-fill" style={{ 
+                width: `${ingestionStatus.total_rows > 0 ? (Math.min(100, ((ingestionStatus.indexed_rows || ingestionStatus.produced_rows) / ingestionStatus.total_rows) * 100)) : 0}%` 
+              }}></div>
+            </div>
+            {ingestionStatus.status === 'completed' && (
+              <div className="status-success">✅ Sync Complete! Data is live.</div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Right */}
       <div className="topbar-right">

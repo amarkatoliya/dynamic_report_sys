@@ -105,6 +105,9 @@ switch (true) {
     case $uri === '/sources'        && $method === 'GET':    handleSources($solrUrl);              break;
     case $uri === '/produce'        && $method === 'POST':   handleProduce($kafkaBroker);          break;
     case $uri === '/audit'          && $method === 'GET':    handleGetAudit();                     break;
+    case $uri === '/schedules'      && $method === 'GET':    handleGetSchedules();                 break;
+    case $uri === '/schedules'      && $method === 'POST':   handleSaveSchedule();                 break;
+    case $uri === '/schedules'      && $method === 'DELETE': handleDeleteSchedule();               break;
     case $uri === '/health'         && $method === 'GET':    handleHealth($solrUrl);               break;
     default:
         http_response_code(404);
@@ -928,4 +931,58 @@ function json(mixed $data): void
 {
     echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
+}
+
+// ── Schedules Handlers ────────────────────────────────────────────────────────
+function handleGetSchedules(): void {
+    requireAuth();
+    $sFile = __DIR__ . '/../storage/schedules.json';
+    $schedules = json_decode(file_get_contents($sFile) ?: '[]', true);
+    json(['schedules' => $schedules]);
+}
+
+function handleSaveSchedule(): void {
+    $user = requireAuth();
+    $body = getBody();
+    if (empty($body['view_id']) || empty($body['email'])) {
+        http_response_code(400); json(['error' => 'Missing view_id or email']);
+    }
+
+    $sFile = __DIR__ . '/../storage/schedules.json';
+    $schedules = json_decode(file_get_contents($sFile) ?: '[]', true);
+    
+    $id = $body['id'] ?? ('sched_' . bin2hex(random_bytes(4)));
+    $newSched = [
+        'id'        => $id,
+        'view_id'   => $body['view_id'],
+        'email'     => $body['email'],
+        'frequency' => $body['frequency'] ?? 'daily',
+        'last_run'  => $body['last_run'] ?? null,
+        'created_by'=> $user['username'],
+        'created_at'=> date('c')
+    ];
+
+    $updated = false;
+    foreach ($schedules as &$s) {
+        if ($s['id'] === $id) {
+            $s = array_merge($s, $newSched);
+            $updated = true; break;
+        }
+    }
+    if (!$updated) $schedules[] = $newSched;
+    
+    file_put_contents($sFile, json_encode($schedules, JSON_PRETTY_PRINT));
+    AuditLogger::log('SCHEDULE_SAVED', $user['username'], 'SUCCESS', ['id' => $id]);
+    json(['status' => 'ok', 'id' => $id]);
+}
+
+function handleDeleteSchedule(): void {
+    $user = requireAuth();
+    $id = $_GET['id'] ?? null;
+    $sFile = __DIR__ . '/../storage/schedules.json';
+    $schedules = json_decode(file_get_contents($sFile) ?: '[]', true);
+    $schedules = array_values(array_filter($schedules, fn($s) => $s['id'] !== $id));
+    file_put_contents($sFile, json_encode($schedules, JSON_PRETTY_PRINT));
+    AuditLogger::log('SCHEDULE_DELETED', $user['username'], 'SUCCESS', ['id' => $id]);
+    json(['status' => 'ok']);
 }
