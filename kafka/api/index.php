@@ -6,6 +6,8 @@
  */
 
 require_once __DIR__ . '/../vendor/autoload.php';
+require_once __DIR__ . '/JwtHelper.php';
+require_once __DIR__ . '/AuditLogger.php';
 
 use Monolog\Logger;
 use Monolog\Handler\StreamHandler;
@@ -26,6 +28,27 @@ $cacheTtl   = (int)(getenv('CACHE_TTL')  ?: 60);   // seconds
 
 $log = new Logger('api');
 $log->pushHandler(new StreamHandler('php://stderr', Logger::WARNING));
+
+// ── Auth & Audit Helpers ────────────────────────────────────────────────────────
+function getUser(): ?array {
+    $auth = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
+    if (!str_starts_with($auth, 'Bearer ')) return null;
+    $token = substr($auth, 7);
+    return JwtHelper::validate($token);
+}
+
+function requireAuth(string $role = null): array {
+    $user = getUser();
+    if (!$user) {
+        http_response_code(401);
+        json(['error' => 'Unauthorized']);
+    }
+    if ($role && ($user['role'] ?? '') !== $role) {
+        http_response_code(403);
+        json(['error' => 'Forbidden']);
+    }
+    return $user;
+}
 
 // ── Redis connection (lazy, optional) ─────────────────────────────────────────
 function getRedis(): ?\Predis\Client {
@@ -68,55 +91,113 @@ $method = $_SERVER['REQUEST_METHOD'];
 $uri    = preg_replace('#^/api#', '', $uri);
 
 switch (true) {
+    case $uri === '/login'          && $method === 'POST':   handleLogin();                        break;
     case $uri === '/query'          && $method === 'POST':   handleQuery($solrUrl);                break;
     case $uri === '/schema'         && $method === 'GET':    handleSchema($solrUrl);               break;
     case $uri === '/facets'         && $method === 'POST':   handleFacets($solrUrl);               break;
     case $uri === '/chart-data'     && $method === 'POST':   handleChartData($solrUrl);            break;
     case $uri === '/aggregations'   && $method === 'POST':   handleAggregations($solrUrl);         break;
+    case $uri === '/export'         && $method === 'POST':   handleExport($solrUrl);               break;
     case $uri === '/views'          && $method === 'GET':    handleGetViews();                     break;
     case $uri === '/views'          && $method === 'POST':   handleSaveView();                     break;
     case $uri === '/views'          && $method === 'DELETE': handleDeleteView();                   break;
     case $uri === '/views/default'  && $method === 'POST':   handleSetDefaultView();               break;
     case $uri === '/sources'        && $method === 'GET':    handleSources($solrUrl);              break;
     case $uri === '/produce'        && $method === 'POST':   handleProduce($kafkaBroker);          break;
+    case $uri === '/audit'          && $method === 'GET':    handleGetAudit();                     break;
     case $uri === '/health'         && $method === 'GET':    handleHealth($solrUrl);               break;
     default:
         http_response_code(404);
         json(['error' => 'Not found', 'path' => $uri]);
 }
 
+// ── Auth Handlers ──────────────────────────────────────────────────────────
+function handleLogin(): void
+{
+    $body = getBody();
+    $u = $body['username'] ?? '';
+    $p = $body['password'] ?? '';
+
+    $users = json_decode(file_get_contents(__DIR__ . '/../storage/users.json'), true);
+    $found = null;
+    foreach ($users as $user) {
+        if ($user['username'] === $u && $user['password'] === $p) {
+            $found = $user;
+            break;
+        }
+    }
+
+    if (!$found) {
+        AuditLogger::log('LOGIN_FAILED', $u, 'FAILURE', ['reason' => 'invalid credentials']);
+        http_response_code(401);
+        json(['error' => 'Invalid credentials']);
+    }
+
+    $token = JwtHelper::generate([
+        'user_id' => $found['id'],
+        'username' => $found['username'],
+        'role' => $found['role'],
+        'name' => $found['name'],
+        'exp' => time() + (3600 * 24) // 24h
+    ]);
+
+    AuditLogger::log('LOGIN_SUCCESS', $found['username']);
+    json(['token' => $token, 'user' => [
+        'id' => $found['id'],
+        'username' => $found['username'],
+        'name' => $found['name'],
+        'role' => $found['role']
+    ]]);
+}
+
+function handleGetAudit(): void
+{
+    requireAuth('admin');
+    $logs = json_decode(file_get_contents(__DIR__ . '/../storage/audit.json'), true) ?? [];
+    json(['logs' => $logs]);
+}
+
 // ── Query ──────────────────────────────────────────────────────────────────────
 function handleQuery(string $solrUrl): void
 {
+    requireAuth();
     global $cacheTtl;
     $body = getBody();
 
-    $rows    = (int)($body['rows']   ?? 50);
-    $page    = (int)($body['page']   ?? 1);
-    $start   = ($page - 1) * $rows;
-    $sort    = $body['sort']         ?? 'score desc';
-    $q       = $body['q']            ?? '*:*';
-    $fields  = $body['fields']       ?? ['*'];
-    $filters = $body['filters']      ?? [];
-    $dateCompare = $body['dateCompare'] ?? null;
+    $user = requireAuth();
+    global $cacheTtl;
+    $body   = getBody();
+    $page   = (int)($body['page'] ?? 1);
+    $rows   = (int)($body['rows'] ?? 50);
+    $cursor = $body['cursor'] ?? null;
+    $sort   = $body['sort'] ?? 'score desc';
 
-    $fqs = buildFilterQueries($filters);
+    // Must include unique key for cursorMark
+    if (!str_contains($sort, 'id')) {
+        $sort .= ', id asc';
+    }
+
+    $fqs = buildFilterQueries($body['filters'] ?? []);
 
     $params = [
-        'q'      => $q,
-        'rows'   => $rows,
-        'start'  => $start,
-        'sort'   => $sort,
-        'fl'     => implode(',', $fields),
-        'wt'     => 'json',
-        'indent' => 'false',
+        'q'              => $body['search'] ? ('_text_:(' . $body['search'] . ')') : '*:*',
+        'rows'           => $rows,
+        'sort'           => $sort,
+        'fl'             => implode(',', $body['fields'] ?? ['*']),
+        'wt'             => 'json',
+        'hl'             => 'true',
+        'hl.fl'          => '*',
+        'hl.simple.pre'  => '<mark>',
+        'hl.simple.post' => '</mark>',
+        'hl.fragsize'    => 0, // return full field if possible
     ];
-    if (!empty($fqs)) $params['fq'] = $fqs;
 
-    if ($dateCompare) {
-        json(executeDateCompare($solrUrl, $params, $dateCompare));
-        return;
+    if ($cursor) {
+        $params['cursorMark'] = $cursor;
+    } else {
+        $params['start'] = ($page - 1) * $rows;
     }
+    if (!empty($fqs)) $params['fq'] = $fqs;
 
     // Cache non-paginated results
     $cKey  = cacheKey('query', $params);
@@ -125,15 +206,18 @@ function handleQuery(string $solrUrl): void
 
     $response = solrRequest($solrUrl . '/select', $params);
     error_log("Solr Query: " . $solrUrl . "/select?" . http_build_query($params));
-    $data = json_decode($response, true);
+    AuditLogger::log('QUERY_EXECUTED', $user['username'], 'SUCCESS', ['search' => $body['search'] ?? '*:*']);
 
+    $res = json_decode($response, true);
     $result = [
-        'total'  => $data['response']['numFound'] ?? 0,
-        'page'   => $page,
-        'rows'   => $rows,
-        'docs'   => $data['response']['docs']     ?? [],
-        'facets' => $data['facet_counts']          ?? null,
-        'timing' => $data['responseHeader']['QTime'] ?? null,
+        'total'      => $res['response']['numFound'] ?? 0,
+        'page'       => $page,
+        'rows'       => $rows,
+        'docs'       => $res['response']['docs']     ?? [],
+        'facets'     => $res['facet_counts']         ?? null,
+        'timing'     => $res['responseHeader']['QTime'] ?? null,
+        'nextCursor' => $res['nextCursorMark']       ?? null,
+        'highlights' => $res['highlighting']         ?? []
     ];
     cacheSet($cKey, $result, $cacheTtl);
     json($result);
@@ -142,6 +226,7 @@ function handleQuery(string $solrUrl): void
 // ── Sources ──────────────────────────────────────────────────────────────────
 function handleSources(string $solrUrl): void
 {
+    requireAuth();
     $params = [
         'q'              => '*:*',
         'rows'           => 0,
@@ -165,6 +250,7 @@ function handleSources(string $solrUrl): void
 // ── Schema ─────────────────────────────────────────────────────────────────────
 function handleSchema(string $solrUrl): void
 {
+    requireAuth();
     $excludedFields = ['id', 'score', '_version_', '_root_', '_nest_path_', '_nest_parent_', 'source_file_s'];
     $source = $_GET['source'] ?? null;
 
@@ -247,18 +333,18 @@ function handleSchema(string $solrUrl): void
 // ── Facets ─────────────────────────────────────────────────────────────────────
 function handleFacets(string $solrUrl): void
 {
+    requireAuth();
     global $cacheTtl;
     $body   = getBody();
     $fields = $body['fields'] ?? [];
+    $pivots = $body['pivots'] ?? [];
     $limit  = (int)($body['limit'] ?? 50);
     $prefix = $body['prefix'] ?? '';
-    $fqs    = buildFilterQueries($body['filters'] ?? []);
+    $filters = $body['filters'] ?? [];
 
-    if (empty($fields)) { json(['facets' => []]); return; }
+    $fqs = buildFilterQueries($filters);
 
-    $cKey = cacheKey('facets', ['fields' => $fields, 'limit' => $limit, 'fqs' => $fqs]);
-    $cached = cacheGet($cKey);
-    if ($cached) { json($cached); return; }
+    if (empty($fields) && empty($pivots)) { json(['facets' => []]); return; }
 
     $params = [
         'q'              => '*:*',
@@ -268,24 +354,31 @@ function handleFacets(string $solrUrl): void
         'facet.mincount' => 1,
         'wt'             => 'json',
     ];
-    foreach ($fields as $f) $params['facet.field'][] = $f;
+
+    if (!empty($fields)) $params['facet.field'] = $fields;
+    if (!empty($pivots)) $params['facet.pivot'] = array_map(fn($p) => implode(',', $p), $pivots);
     if ($prefix) $params['facet.prefix'] = $prefix;
     if (!empty($fqs)) $params['fq'] = $fqs;
 
-    $response = solrRequest($solrUrl . '/select', $params);
-    $data = json_decode($response, true);
+    $cKey = cacheKey('facets', ['fields' => $fields, 'pivots' => $pivots, 'limit' => $limit, 'fqs' => $fqs]);
+    $cached = cacheGet($cKey);
+    if ($cached) { json($cached); return; }
 
-    $facets = [];
-    foreach ($data['facet_counts']['facet_fields'] ?? [] as $field => $values) {
-        $facets[$field] = [];
-        for ($i = 0; $i < count($values); $i += 2) {
-            $facets[$field][] = ['value' => $values[$i], 'count' => $values[$i + 1]];
+    $response = solrRequest($solrUrl . '/select', $params);
+    $res = json_decode($response, true);
+    $out = [];
+    if (!empty($res['facet_counts']['facet_fields'])) {
+        foreach ($res['facet_counts']['facet_fields'] as $f => $vals) {
+            $chunked = array_chunk($vals, 2);
+            $out[$f] = array_map(fn($c) => ['value' => $c[0], 'count' => $c[1]], $chunked);
         }
     }
+    if (!empty($res['facet_counts']['facet_pivot'])) {
+        $out['pivots'] = $res['facet_counts']['facet_pivot'];
+    }
 
-    $result = ['facets' => $facets];
-    cacheSet($cKey, $result, $cacheTtl);
-    json($result);
+    cacheSet($cKey, $out, $cacheTtl);
+    json(['facets' => $out]);
 }
 
 
@@ -302,11 +395,13 @@ function saveViews(array $views): void {
 
 function handleGetViews(): void
 {
+    requireAuth();
     json(['views' => loadViews()]);
 }
 
 function handleSaveView(): void
 {
+    $user = requireAuth();
     $body = getBody();
     if (empty($body['name'])) { http_response_code(400); json(['error' => 'name required']); return; }
 
@@ -320,6 +415,7 @@ function handleSaveView(): void
 
     $view = [
         'id'         => 'view_' . uniqid(),
+        'userId'     => $user['user_id'],
         'name'       => $body['name'],
         'columns'    => $body['columns'] ?? [],
         'filters'    => $body['filters'] ?? [],
@@ -330,21 +426,45 @@ function handleSaveView(): void
     ];
     $views[] = $view;
     saveViews($views);
+    AuditLogger::log('VIEW_SAVED', $user['username'], 'SUCCESS', ['view_name' => $body['name']]);
     json(['success' => true, 'view' => $view]);
 }
 
 function handleDeleteView(): void
 {
+    $user = requireAuth();
     $body = getBody();
     $id   = $body['id'] ?? null;
     if (!$id) { http_response_code(400); json(['error' => 'id required']); return; }
-    $views = array_values(array_filter(loadViews(), fn($v) => $v['id'] !== $id));
+    
+    $oldViews = loadViews();
+    $view = null;
+    foreach ($oldViews as $v) {
+        if ($v['id'] === $id) {
+            $view = $v;
+            break;
+        }
+    }
+
+    if (!$view) { http_response_code(404); json(['error' => 'view not found']); return; }
+
+    // Logic: Only owner or admin can delete
+    if ($view['userId'] !== $user['user_id'] && $user['role'] !== 'admin') {
+        http_response_code(403);
+        json(['error' => 'Forbidden: You do not own this view']);
+        return;
+    }
+    
+    $views = array_values(array_filter($oldViews, fn($v) => $v['id'] !== $id));
     saveViews($views);
+    
+    AuditLogger::log('VIEW_DELETED', $user['username'], 'SUCCESS', ['view_id' => $id, 'view_name' => $view['name'] ?? 'unknown']);
     json(['success' => true]);
 }
 
 function handleSetDefaultView(): void
 {
+    requireAuth();
     $body = getBody();
     $id   = $body['id'] ?? null;
     if (!$id) { http_response_code(400); json(['error' => 'id required']); return; }
@@ -359,6 +479,7 @@ function handleSetDefaultView(): void
 // ── Chart Data (server-side aggregation) ─────────────────────────────────────
 function handleChartData(string $solrUrl): void
 {
+    requireAuth();
     global $cacheTtl;
     $body = getBody();
 
@@ -460,6 +581,7 @@ function handleChartData(string $solrUrl): void
 // ── Aggregations ───────────────────────────────────────────────────────────────
 function handleAggregations(string $solrUrl): void
 {
+    requireAuth();
     $body    = getBody();
     $fields  = $body['fields']  ?? [];
     $filters = $body['filters'] ?? [];
@@ -500,11 +622,69 @@ function handleAggregations(string $solrUrl): void
 // ── Produce ────────────────────────────────────────────────────────────────────
 function handleProduce(string $kafkaBroker): void
 {
+    $user = requireAuth('admin');
     exec('php /app/producer.php /app/csv > /tmp/producer.log 2>&1 &');
+    AuditLogger::log('INDEX_TRIGGERED', $user['username']);
     json(['success' => true, 'message' => 'Producer triggered']);
 }
 
-// ── Health ─────────────────────────────────────────────────────────────────────
+// ── Streaming Export ────────────────────────────────────────────────────────
+function handleExport(string $solrUrl): void
+{
+    $user = requireAuth();
+    $body = getBody();
+    $cols = $body['columns'] ?? [];
+    $search = $body['search'] ?? '';
+    
+    // Set headers for CSV download
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename=report_' . date('Ymd_His') . '.csv');
+    
+    $output = fopen('php://output', 'w');
+    fprintf($output, chr(0xEF).chr(0xBB).chr(0xBF)); // BOM for Excel
+
+    // Write header
+    fputcsv($output, $cols);
+
+    $cursor = '*';
+    $sort = ($body['sort'] ?? 'score desc') . ', id asc';
+    
+    AuditLogger::log('EXPORT_STARTED', $user['username'], 'SUCCESS', ['rows_estimate' => 'all']);
+
+    while (true) {
+        $params = [
+            'q'          => $search ? ('_text_:(' . $search . ')') : '*:*',
+            'rows'       => 1000,
+            'sort'       => $sort,
+            'cursorMark' => $cursor,
+            'fl'         => implode(',', $cols),
+            'fq'         => buildFilterQueries($body['filters'] ?? []),
+            'wt'         => 'json'
+        ];
+
+        $response = solrRequest($solrUrl . '/select', $params);
+        $res = json_decode($response, true);
+        $docs = $res['response']['docs'] ?? [];
+        if (empty($docs)) break;
+
+        foreach ($docs as $doc) {
+            $row = array_map(fn($c) => $doc[$c] ?? '', $cols);
+            fputcsv($output, $row);
+        }
+
+        if (($res['nextCursorMark'] ?? null) === $cursor) break;
+        $cursor = $res['nextCursorMark'] ?? null;
+        if (!$cursor) break; // Should not happen if nextCursorMark is not same as current, but good for safety
+        
+        // Check for client disconnect
+        if (connection_aborted()) break;
+    }
+
+    fclose($output);
+    exit;
+}
+
+// ── Health Check ──────────────────────────────────────────────────────────────
 function handleHealth(string $solrUrl): void
 {
     $solrOk = false;

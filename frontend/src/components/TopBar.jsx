@@ -42,6 +42,7 @@ export default function TopBar() {
     globalSearch, setGlobalSearch,
     timing, cached,
     sources, selectedSource, setSource,
+    user, logout, exportAll
   } = useStore()
 
   const [showExport, setShowExport]   = useState(false)
@@ -147,10 +148,12 @@ export default function TopBar() {
           </select>
         </div>
 
-        <button className={`btn btn-sm ${triggering || triggered ? 'btn-success-flash' : ''}`}
-          onClick={triggerProducer} disabled={triggering}>
-          {triggered ? <><Check size={13} /> Indexed!</> : <><Upload size={13} className={triggering ? 'animate-spin' : ''} /> Index CSV</>}
-        </button>
+        {user?.role === 'admin' && (
+          <button className={`btn btn-sm ${triggering || triggered ? 'btn-success-flash' : ''}`}
+            onClick={triggerProducer} disabled={triggering}>
+            {triggered ? <><Check size={13} /> Indexed!</> : <><Upload size={13} className={triggering ? 'animate-spin' : ''} /> Index CSV</>}
+          </button>
+        )}
 
         <DateRangeFilter />
 
@@ -167,13 +170,28 @@ export default function TopBar() {
             <>
               <div style={{ position: 'fixed', inset: 0, zIndex: 99 }} onClick={() => setShowExport(false)} />
               <div className="dropdown-menu" style={{ zIndex: 100, minWidth: 180 }}>
-                <button className="dropdown-item" onClick={exportCSV}>📄 Export as CSV</button>
+                <button className="dropdown-item" onClick={exportCSV}>📄 Export Current View (CSV)</button>
                 <button className="dropdown-item" onClick={() => { exportXLSX(results, selectedColumns, schema); setShowExport(false) }}>
-                  📊 Export as Excel (.xls)
+                  📊 Export Current View (Excel)
+                </button>
+                <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
+                <button className="dropdown-item" style={{ color: 'var(--accent)' }} onClick={() => { exportAll(); setShowExport(false) }}>
+                  🚀 Export ALL Records (Full CSV)
                 </button>
               </div>
             </>
           )}
+        </div>
+
+        {/* User Profile */}
+        <div className="topbar-user">
+          <div className="topbar-user-info">
+            <span className="topbar-user-name">{user?.name}</span>
+            <span className="topbar-user-role">{user?.role}</span>
+          </div>
+          <button className="btn btn-sm btn-icon" onClick={logout} title="Sign out">
+            <X size={15} />
+          </button>
         </div>
       </div>
     </div>

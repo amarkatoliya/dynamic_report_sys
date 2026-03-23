@@ -1,0 +1,35 @@
+# Node / Frontend
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+frontend/.env.local
+
+# Composer / PHP
+vendor/
+kafka/vendor/
+composer.lock
+kafka/composer.lock
+
+# Logs and Storage
+*.log
+kafka/storage/audit.json
+kafka/storage/logs/
+.phpunit.result.cache
+
+# Docker
+.docker_data/
+zookeeper_data/
+kafka_data/
+solr_data/
+redis_data/
+
+# OS / IDE
+.DS_Store
+.vscode/
+.idea/
+Thumbs.db
+
+# Large Sample Data (optional to keep if small, but usually ignored)
+sample-data/
+*.csv

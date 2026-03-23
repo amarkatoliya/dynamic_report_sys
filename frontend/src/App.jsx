@@ -7,20 +7,30 @@ import ChartPanel from './components/ChartPanel'
 import FilterBuilder from './components/FilterBuilder'
 import SavedViews from './components/SavedViews'
 import StatusBar from './components/StatusBar'
+import Login from './components/Login'
 import './App.css'
 
 export default function App() {
   const { 
-    fetchSchema, fetchViews, query, activeTab, sidebarOpen, 
-    fetchSources, sources, selectedSource, setSource 
+    token, fetchSchema, fetchViews, activeTab, sidebarOpen, 
+    fetchSources,
+    results, selectedColumns, schema,
+    globalSearch, setGlobalSearch,
+    timing, cached,
+    sources, selectedSource, setSource,
+    user, logout
   } = useStore()
 
   useEffect(() => {
-    fetchSources()
-    fetchViews()
-    fetchSchema()
-    query()
-  }, [])
+    if (token) {
+      fetchSources()
+      fetchViews()
+      fetchSchema()
+      // query() // Removed as per instruction, assuming query is now handled differently or not needed here
+    }
+  }, [token])
+
+  if (!token) return <Login />
 
   return (
     <div className="app-layout">

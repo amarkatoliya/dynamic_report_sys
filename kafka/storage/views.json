@@ -1,1 +1,73 @@
-[]
+[
+    {
+        "id": "view_69c0e014bba6c",
+        "name": "product 38,190 price change in last 90 days",
+        "columns": [
+            "product_id_i",
+            "parent_sku_s",
+            "Product_Name_s",
+            "Price_f",
+            "Map_Price_f",
+            "Type_s",
+            "Brand_Name_s",
+            "OVS_SKU_s",
+            "OVS_URL_s",
+            "OVS_PRICE_f",
+            "OVS_Name_s",
+            "Quantity_i",
+            "Date_dt",
+            "Stock_s",
+            "Last_Price_Change_dt",
+            "Extracted_URL_s",
+            "MAP_Violation_s",
+            "ingested_at_dt",
+            "Image_URL_s",
+            "Map_Price_i",
+            "OVS_SKU_i",
+            "OVS_PRICE_i",
+            "MAP_Violation_Date_Time_dt",
+            "MAP_Violation_Screenshot_s",
+            "MAP_Violation_Screenshot_Date_Time_dt",
+            "Price_i"
+        ],
+        "filters": [
+            {
+                "field": "product_id_i",
+                "type": "equals",
+                "value": "38190",
+                "op": "AND",
+                "min": "",
+                "max": "",
+                "from": "",
+                "to": ""
+            }
+        ],
+        "sort": "score desc",
+        "created_at": "2026-03-23T06:39:16+00:00",
+        "is_default": false,
+        "version": 1
+    },
+    {
+        "id": "view_69c0f513d275a",
+        "userId": "u2",
+        "name": "this year record",
+        "columns": [
+            "product_id_i",
+            "Product_Name_s",
+            "parent_sku_s",
+            "Price_f",
+            "Map_Price_f",
+            "Type_s",
+            "Brand_Name_s",
+            "AF_SKU_s",
+            "AF_URL_s",
+            "Image_URL_s",
+            "AF_PRICE_i"
+        ],
+        "filters": [],
+        "sort": "score desc",
+        "created_at": "2026-03-23T08:08:51+00:00",
+        "is_default": false,
+        "version": 1
+    }
+]

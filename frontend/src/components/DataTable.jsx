@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useMemo } from 'react'
 import { useStore } from '../store'
-import { ArrowUp, ArrowDown, ArrowUpDown, ChevronLeft, ChevronRight } from 'lucide-react'
+import { ArrowUp, ArrowDown, ArrowUpDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
 
 const ROW_HEIGHT = 38 // px per row
 const OVERSCAN   = 5  // extra rows above/below viewport
@@ -101,6 +101,30 @@ export default function DataTable() {
     document.addEventListener('mousemove', onMove)
     document.addEventListener('mouseup', onUp)
   }, [columnWidths, setColumnWidth])
+
+  const highlights   = useStore(s => s.highlights)
+
+  // ── Render cell with highlighting & merged values ──
+  const renderCell = (row, col) => {
+    // Determine which field in the group has data
+    const valCol = col.group.find(g => row[g] != null && row[g] !== '') || col.id
+    const val    = row[valCol] ?? ''
+    
+    // Check for highlight in ANY of the grouped fields
+    let hl = null
+    for (const g of col.group) {
+        if (highlights?.[row.id]?.[g]?.[0]) {
+            hl = highlights[row.id][g][0]
+            break
+        }
+    }
+    
+    if (hl) {
+      return <span dangerouslySetInnerHTML={{ __html: hl }} />
+    }
+    
+    return <CellValue value={val} col={valCol} />
+  }
 
   // Header drag-reorder
   const onHeaderDragStart = (e, colId) => {
@@ -203,16 +227,13 @@ export default function DataTable() {
               )}
               {visibleRows.map((row, ri) => (
                 <tr key={row.id || (start + ri)} className={`tr ${(start + ri) % 2 === 1 ? 'alt' : ''}`}>
-                  {dedupedCols.map(col => {
-                    const valCol = col.group.find(g => row[g] != null && row[g] !== '') || col.id
-                    return (
-                      <td key={col.id} className="td"
-                        style={{ maxWidth: columnWidths[col.id] || 140 }}
-                        title={String(row[valCol] ?? '')}>
-                        <CellValue value={row[valCol]} col={valCol} />
-                      </td>
-                    )
-                  })}
+                  {dedupedCols.map(col => (
+                    <td key={col.id} className="td"
+                      style={{ maxWidth: columnWidths[col.id] || 140 }}
+                      title={String(row[col.id] ?? '')}>
+                      {renderCell(row, col)}
+                    </td>
+                  ))}
                 </tr>
               ))}
               {/* Bottom spacer for virtual scroll */}
@@ -227,26 +248,46 @@ export default function DataTable() {
       </div>
 
       {/* Pagination */}
-      {!loading && total > rows && (
-        <div className="pagination">
-          <span className="pagination-info">
-            Showing <strong>{((page - 1) * rows + 1).toLocaleString()}</strong>–<strong>{Math.min(page * rows, total).toLocaleString()}</strong> of <strong>{total.toLocaleString()}</strong>
-            {results.length > 0 && <span className="pagination-virtual-hint"> · virtual scroll active</span>}
-          </span>
-          <div className="pagination-controls">
-            <button className="btn btn-icon btn-sm" onClick={() => setPage(Math.max(1, page - 1))} disabled={page === 1}>
-              <ChevronLeft size={14} />
-            </button>
-            {pages.map(p => (
-              <button key={p} className={`btn btn-sm page-btn ${p === page ? 'active' : ''}`}
-                onClick={() => setPage(p)}>{p}</button>
-            ))}
-            <button className="btn btn-icon btn-sm" onClick={() => setPage(Math.min(totalPages, page + 1))} disabled={page === totalPages}>
-              <ChevronRight size={14} />
-            </button>
-          </div>
-        </div>
-      )}
+      {!loading && total > 0 && <Pagination />}
+    </div>
+  )
+}
+
+const Pagination = () => {
+  const { page, rows, total, setPage, nextCursor, setNextPage, loading } = useStore()
+  const totalPages = Math.ceil(total / rows)
+
+  if (total === 0) return null
+
+  return (
+    <div className="pagination animate-fade-in">
+      <div className="pagination-info">
+        Page <strong>{page}</strong> of {totalPages.toLocaleString()}
+        <span className="pagination-total">({total.toLocaleString()} total)</span>
+      </div>
+      <div className="pagination-btns">
+        <button className="btn btn-sm btn-icon" onClick={() => setPage(1)} disabled={page === 1 || loading}>
+          <ChevronsLeft size={14} />
+        </button>
+        <button className="btn btn-sm btn-icon" onClick={() => setPage(page - 1)} disabled={page === 1 || loading}>
+          <ChevronLeft size={14} />
+        </button>
+        
+        {/* Cursor-based Next for better performance */}
+        {nextCursor ? (
+           <button className="btn btn-sm btn-primary" onClick={setNextPage} disabled={loading} style={{ gap: 6 }}>
+             Next Page <ChevronRight size={14} />
+           </button>
+        ) : (
+           <button className="btn btn-sm btn-icon" onClick={() => setPage(page + 1)} disabled={page === totalPages || loading}>
+             <ChevronRight size={14} />
+           </button>
+        )}
+
+        <button className="btn btn-sm btn-icon" onClick={() => setPage(totalPages)} disabled={page === totalPages || loading}>
+          <ChevronsRight size={14} />
+        </button>
+      </div>
     </div>
   )
 }

@@ -29,6 +29,59 @@ export const useStore = create((set, get) => {
   const debouncedQuery = debounce(() => get()._executeQuery(), 300)
 
   return {
+    // ── Auth ────────────────────────────────────────────────────────────────
+    user:  JSON.parse(localStorage.getItem('user')) || null,
+    token: localStorage.getItem('token') || null,
+
+    login: async (username, password) => {
+      try {
+        const res = await fetch(`${API}/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        })
+        const data = await res.json()
+        if (data.error) throw new Error(data.error)
+        
+        localStorage.setItem('token', data.token)
+        localStorage.setItem('user', JSON.stringify(data.user))
+        set({ token: data.token, user: data.user })
+        
+        // Refresh data after login
+        get().fetchSources()
+        get().fetchViews()
+        get().fetchSchema()
+        get().query()
+      } catch (e) {
+        throw e
+      }
+    },
+
+    logout: () => {
+      localStorage.removeItem('token')
+      localStorage.removeItem('user')
+      set({ token: null, user: null, results: [], total: 0, views: [] })
+    },
+
+    // ── Internal Fetch Helper with Auth ─────────────────────────────────────
+    _fetch: async (url, options = {}) => {
+      const s = get()
+      const headers = {
+        'Content-Type': 'application/json',
+        ...(options.headers || {})
+      }
+      if (s.token) headers['Authorization'] = `Bearer ${s.token}`
+
+      const res = await fetch(url, { ...options, headers })
+      
+      if (res.status === 401) {
+        get().logout()
+        return null
+      }
+      
+      return res
+    },
+
     // ── Schema ──────────────────────────────────────────────────────────────
     schema: [],
     schemaLoading: false,
@@ -37,7 +90,8 @@ export const useStore = create((set, get) => {
 
     fetchSources: async () => {
       try {
-        const res = await fetch(`${API}/sources`)
+        const res = await get()._fetch(`${API}/sources`)
+        if (!res) return
         const data = await res.json()
         set({ sources: data.sources || [] })
       } catch (e) {
@@ -52,7 +106,8 @@ export const useStore = create((set, get) => {
         const url = new URL(`${API}/schema`, window.location.origin)
         if (s.selectedSource) url.searchParams.set('source', s.selectedSource)
         
-        const res  = await fetch(url)
+        const res = await get()._fetch(url)
+        if (!res) return
         const data = await res.json()
         const fields = data.fields || []
         set({ schema: fields })
@@ -149,16 +204,38 @@ export const useStore = create((set, get) => {
 
     // ── Query / Results ───────────────────────────────────────────────────────
     results:       [],
-    total:         0,
-    page:          1,
-    rows:          50,
-    sort:          'score desc',
+    // ── Pagination ──
+    page: 1,
+    rows: 50,
+    cursor: '*', // Initial cursor
+    nextCursor: null,
+    total: 0,
+    sort: 'score desc',
     loading:       false,
     compareResult: null,
 
-    setPage: (page) => { set({ page }); get().query() },
-    setRows: (rows) => { set({ rows, page: 1 }); get().query() },
-    setSort: (sort) => { set({ sort, page: 1 }); get().query() },
+    setPage: (p) => {
+      // If moving forward by 1 page, we can potentially use cursor, 
+      // but for simplicity in this MVP, we'll reset cursor if jumping
+      if (p === 1) set({ cursor: '*' })
+      set({ page: p })
+      get().query()
+    },
+    setNextPage: () => {
+      const s = get()
+      if (s.nextCursor) {
+        set({ cursor: s.nextCursor, page: s.page + 1 })
+        get().query()
+      }
+    },
+    setRows: (r) => {
+      set({ rows: r, page: 1, cursor: '*' })
+      get().query()
+    },
+    setSort: (s) => {
+      set({ sort: s, page: 1, cursor: '*' })
+      get().query()
+    },
 
     // Public query (immediate)
     query: () => get()._executeQuery(),
@@ -171,7 +248,7 @@ export const useStore = create((set, get) => {
 
       const activeFilters = s.filters.filter(isFilterActive)
 
-      // Ensure we query ALL underlying fields that share the same label (e.g. price_i AND price_f)
+      // ── Merged Fields Logic (Restore) ──
       let queryFields = s.selectedColumns.length ? [...s.selectedColumns] : ['*']
       if (queryFields[0] !== '*') {
         const expanded = new Set(queryFields)
@@ -184,31 +261,7 @@ export const useStore = create((set, get) => {
         queryFields = Array.from(expanded)
       }
 
-      // Automatically translate filters on "merged" columns into native OR nested groups
-      const transformFilter = (f) => {
-        if (f.type === 'nested') {
-          return { ...f, children: (f.children || []).map(transformFilter) }
-        }
-        const def = s.schema.find(sf => sf.name === f.field)
-        if (def) {
-          const groupNames = s.schema.filter(sf => sf.label === def.label).map(sf => sf.name)
-          if (groupNames.length > 1) {
-            const isNegative = ['not_equals', 'not_in', 'is_null'].includes(f.type)
-            const groupOp = isNegative ? 'AND' : 'OR'
-            return {
-              type: 'nested',
-              op: f.op || 'AND',
-              groupOp: groupOp,
-              children: groupNames.map(g => ({ ...f, field: g, op: groupOp }))
-            }
-          }
-        }
-        return f
-      }
-
-      const transformedFilters = activeFilters.map(transformFilter)
-
-      // Transform generic sort to def(col1, col2) if merged
+      // ── Advanced Sorting (Restore) ──
       let finalSort = s.sort
       if (finalSort && !finalSort.startsWith('score')) {
         const [sField, sDir] = finalSort.split(' ')
@@ -226,12 +279,13 @@ export const useStore = create((set, get) => {
       }
 
       const body = {
-        rows:        s.rows,
-        page:        s.page,
-        sort:        finalSort,
-        fields:      queryFields,
-        filters:     transformedFilters,
-        q:           s.globalSearch?.trim() ? `*${s.globalSearch.trim()}*` : '*:*',
+        page:    s.page,
+        rows:    s.rows,
+        cursor:  s.cursor,
+        sort:    finalSort,
+        search:  s.globalSearch,
+        fields:  queryFields,
+        filters: activeFilters,
         dateCompare: s.dateCompare,
       }
 
@@ -244,29 +298,22 @@ export const useStore = create((set, get) => {
         })
       }
 
-      // Add global date range if both field and range are set
-      if (s.dateField && (s.dateRange.from || s.dateRange.to)) {
-        body.filters.push({
-          field: s.dateField,
-          type: 'date_range',
-          from: s.dateRange.from,
-          to: s.dateRange.to,
-          op: 'AND'
-        })
-      }
-
       try {
-        const res  = await fetch(`${API}/query`, {
+        const res = await get()._fetch(`${API}/query`, {
           method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
           body:    JSON.stringify(body),
         })
+        if (!res) return
         const data = await res.json()
-        if (data.current) {
-          set({ results: data.current.docs || [], total: data.current.total || 0, compareResult: data })
-        } else {
-          set({ results: data.docs || [], total: data.total || 0 })
-        }
+        
+        set({ 
+          results:       data.docs || [], 
+          total:         data.total || 0,
+          nextCursor:    data.nextCursor || null,
+          highlights:    data.highlights || {},
+          timing:        data.timing,
+          compareResult: body.dateCompare ? data : null,
+        })
       } catch (e) {
         console.error('Query failed', e)
       } finally {
@@ -274,15 +321,45 @@ export const useStore = create((set, get) => {
       }
     },
 
+    // ── Export ──────────────────────────────────────────────────────────────
+    exportAll: async () => {
+      const s = get()
+      const body = {
+        columns: s.selectedColumns.length ? s.selectedColumns : s.schema.slice(0, 10).map(f => f.name),
+        search:  s.globalSearch,
+        filters: s.filters.filter(isFilterActive),
+        sort:    s.sort,
+      }
+
+      try {
+        const res = await get()._fetch(`${API}/export`, {
+          method: 'POST',
+          body: JSON.stringify(body)
+        })
+        if (!res) return
+        
+        const blob = await res.blob()
+        const url  = window.URL.createObjectURL(blob)
+        const a    = document.createElement('a')
+        a.href     = url
+        a.download = `report_full_${Date.now()}.csv`
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+      } catch (e) {
+        console.error('Export failed', e)
+      }
+    },
+
     // ── Facets ────────────────────────────────────────────────────────────────
     facets: {},
     fetchFacets: async (fields, filters = []) => {
       try {
-        const res  = await fetch(`${API}/facets`, {
+        const res = await get()._fetch(`${API}/facets`, {
           method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
           body:    JSON.stringify({ fields, limit: 50, filters }),
         })
+        if (!res) return
         const data = await res.json()
         set(s => ({ facets: { ...s.facets, ...(data.facets || {}) } }))
       } catch (e) {
@@ -313,11 +390,11 @@ export const useStore = create((set, get) => {
       }
 
       try {
-        const res  = await fetch(`${API}/chart-data`, {
+        const res = await get()._fetch(`${API}/chart-data`, {
           method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
           body:    JSON.stringify(body),
         })
+        if (!res) return
         const data = await res.json()
         set({
           chartData:  data.data  || [],
@@ -341,15 +418,15 @@ export const useStore = create((set, get) => {
       if (!numFields.length) return
 
       try {
-        const res  = await fetch(`${API}/aggregations`, {
+        const res = await get()._fetch(`${API}/aggregations`, {
           method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
           body:    JSON.stringify({
             fields:  numFields,
             filters: s.filters.filter(isFilterActive),
             source:  s.selectedSource || null,
           }),
         })
+        if (!res) return
         const data = await res.json()
         set({ aggregations: data.aggregations || {} })
       } catch (e) {
@@ -361,16 +438,16 @@ export const useStore = create((set, get) => {
     views: [],
     fetchViews: async () => {
       try {
-        const res  = await fetch(`${API}/views`)
+        const res = await get()._fetch(`${API}/views`)
+        if (!res) return
         const data = await res.json()
         set({ views: data.views || [] })
       } catch (e) {}
     },
     saveView: async (name, isDefault = false) => {
       const s = get()
-      await fetch(`${API}/views`, {
+      await get()._fetch(`${API}/views`, {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({
           name,
           columns:    s.selectedColumns,
@@ -392,20 +469,29 @@ export const useStore = create((set, get) => {
       get().query()
     },
     deleteView: async (id) => {
-      await fetch(`${API}/views`, {
+      await get()._fetch(`${API}/views`, {
         method:  'DELETE',
-        headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ id }),
       })
       get().fetchViews()
     },
     setDefaultView: async (id) => {
-      await fetch(`${API}/views/default`, {
+      await get()._fetch(`${API}/views/default`, {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ id }),
       })
       get().fetchViews()
+    },
+
+    // ── Audit ─────────────────────────────────────────────────────────────────
+    auditLogs: [],
+    fetchAudit: async () => {
+      try {
+        const res = await get()._fetch(`${API}/audit`)
+        if (!res) return
+        const data = await res.json()
+        set({ auditLogs: data.logs || [] })
+      } catch (e) {}
     },
 
     // ── UI State ──────────────────────────────────────────────────────────────
