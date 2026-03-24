@@ -1,18 +1,32 @@
 <?php
-/**
- * Dynamic Reporting API
- * Routes: /api/query, /api/schema, /api/facets, /api/aggregations,
- *         /api/views, /api/views/default, /api/produce, /api/health
- */
+// ── Global Error Handling ───────────────────────────────────────────────────
+ini_set('display_errors', 0);
+error_reporting(E_ALL);
+
+set_exception_handler(function ($e) {
+    http_response_code(500);
+    echo json_encode([
+        'error' => 'Global Exception',
+        'message' => $e->getMessage(),
+        'file' => basename($e->getFile()),
+        'line' => $e->getLine()
+    ]);
+    exit;
+});
+
+set_error_handler(function ($severity, $message, $file, $line) {
+    if (!(error_reporting() & $severity)) return;
+    throw new ErrorException($message, 0, $severity, $file, $line);
+});
 
 require_once __DIR__ . '/../vendor/autoload.php';
 require_once __DIR__ . '/JwtHelper.php';
 require_once __DIR__ . '/AuditLogger.php';
+require_once __DIR__ . '/SolrHelper.php';
 
 use Monolog\Logger;
 use Monolog\Handler\StreamHandler;
 
-// ── CORS ───────────────────────────────────────────────────────────────────────
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
@@ -88,27 +102,27 @@ function cacheKey(string $prefix, array $params): string {
 // ── Router ─────────────────────────────────────────────────────────────────────
 $uri    = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 $method = $_SERVER['REQUEST_METHOD'];
-$uri    = preg_replace('#^/api#', '', $uri);
+$shortUri = preg_replace('#^/api#', '', $uri);
 
 switch (true) {
-    case $uri === '/login'          && $method === 'POST':   handleLogin();                        break;
-    case $uri === '/query'          && $method === 'POST':   handleQuery($solrUrl);                break;
-    case $uri === '/schema'         && $method === 'GET':    handleSchema($solrUrl);               break;
-    case $uri === '/facets'         && $method === 'POST':   handleFacets($solrUrl);               break;
-    case $uri === '/chart-data'     && $method === 'POST':   handleChartData($solrUrl);            break;
-    case $uri === '/aggregations'   && $method === 'POST':   handleAggregations($solrUrl);         break;
-    case $uri === '/export'         && $method === 'POST':   handleExport($solrUrl);               break;
-    case $uri === '/views'          && $method === 'GET':    handleGetViews();                     break;
-    case $uri === '/views'          && $method === 'POST':   handleSaveView();                     break;
-    case $uri === '/views'          && $method === 'DELETE': handleDeleteView();                   break;
-    case $uri === '/views/default'  && $method === 'POST':   handleSetDefaultView();               break;
-    case $uri === '/sources'        && $method === 'GET':    handleSources($solrUrl);              break;
-    case $uri === '/produce'        && $method === 'POST':   handleProduce($kafkaBroker);          break;
-    case $uri === '/audit'          && $method === 'GET':    handleGetAudit();                     break;
-    case $uri === '/schedules'      && $method === 'GET':    handleGetSchedules();                 break;
-    case $uri === '/schedules'      && $method === 'POST':   handleSaveSchedule();                 break;
-    case $uri === '/schedules'      && $method === 'DELETE': handleDeleteSchedule();               break;
-    case $uri === '/health'         && $method === 'GET':    handleHealth($solrUrl);               break;
+    case ($uri === '/login' || $shortUri === '/login') && $method === 'POST':   handleLogin();                        break;
+    case ($uri === '/query' || $shortUri === '/query') && $method === 'POST':   handleQuery($solrUrl);                break;
+    case ($uri === '/schema' || $shortUri === '/schema')        && $method === 'GET':    handleSchema($solrUrl);               break;
+    case ($uri === '/facets' || $shortUri === '/facets')        && $method === 'POST':   handleFacets($solrUrl);               break;
+    case ($uri === '/chart-data' || $shortUri === '/chart-data') && $method === 'POST':   handleChartData($solrUrl);            break;
+    case ($uri === '/aggregations' || $shortUri === '/aggregations') && $method === 'POST':   handleAggregations($solrUrl);         break;
+    case ($uri === '/export' || $shortUri === '/export')         && $method === 'POST':   handleExport($solrUrl);               break;
+    case ($uri === '/views' || $shortUri === '/views')          && $method === 'GET':    handleGetViews();                     break;
+    case ($uri === '/views' || $shortUri === '/views')          && $method === 'POST':   handleSaveView();                     break;
+    case ($uri === '/views' || $shortUri === '/views')          && $method === 'DELETE': handleDeleteView();                   break;
+    case ($uri === '/views/default' || $shortUri === '/views/default') && $method === 'POST':   handleSetDefaultView();               break;
+    case ($uri === '/sources' || $shortUri === '/sources')        && $method === 'GET':    handleSources($solrUrl);              break;
+    case ($uri === '/produce' || $shortUri === '/produce')        && $method === 'POST':   handleProduce($kafkaBroker);          break;
+    case ($uri === '/audit' || $shortUri === '/audit')          && $method === 'GET':    handleGetAudit();                     break;
+    case ($uri === '/schedules' || $shortUri === '/schedules')      && $method === 'GET':    handleGetSchedules();                 break;
+    case ($uri === '/schedules' || $shortUri === '/schedules')      && $method === 'POST':   handleSaveSchedule();                 break;
+    case ($uri === '/schedules' || $shortUri === '/schedules')      && $method === 'DELETE': handleDeleteSchedule();               break;
+    case ($uri === '/health' || $shortUri === '/health')         && $method === 'GET':    handleHealth($solrUrl);               break;
     default:
         http_response_code(404);
         json(['error' => 'Not found', 'path' => $uri]);
@@ -163,10 +177,6 @@ function handleGetAudit(): void
 // ── Query ──────────────────────────────────────────────────────────────────────
 function handleQuery(string $solrUrl): void
 {
-    requireAuth();
-    global $cacheTtl;
-    $body = getBody();
-
     $user = requireAuth();
     global $cacheTtl;
     $body   = getBody();
@@ -180,8 +190,6 @@ function handleQuery(string $solrUrl): void
         $sort .= ', id asc';
     }
 
-    $fqs = buildFilterQueries($body['filters'] ?? []);
-
     $params = [
         'q'              => $body['search'] ? ('_text_:(' . $body['search'] . ')') : '*:*',
         'rows'           => $rows,
@@ -193,6 +201,7 @@ function handleQuery(string $solrUrl): void
         'hl.simple.pre'  => '<mark>',
         'hl.simple.post' => '</mark>',
         'hl.fragsize'    => 0, // return full field if possible
+        'fq'             => SolrHelper::buildFilterQueries($body['filters'] ?? []),
     ];
 
     if ($cursor) {
@@ -200,7 +209,6 @@ function handleQuery(string $solrUrl): void
     } else {
         $params['start'] = ($page - 1) * $rows;
     }
-    if (!empty($fqs)) $params['fq'] = $fqs;
 
     // Cache non-paginated results
     $cKey  = cacheKey('query', $params);
@@ -215,11 +223,16 @@ function handleQuery(string $solrUrl): void
         return;
     }
 
-    $response = solrRequest($solrUrl . '/select', $params);
+    $response = SolrHelper::request($solrUrl . '/select', $params);
     error_log("Solr Query: " . $solrUrl . "/select?" . http_build_query($params));
     AuditLogger::log('QUERY_EXECUTED', $user['username'], 'SUCCESS', ['search' => $body['search'] ?? '*:*']);
 
     $res = json_decode($response, true);
+    if ($res === null) {
+        http_response_code(500);
+        json(['error' => 'Solr returned invalid JSON. Check Solr status.', 'response_snippet' => substr($response, 0, 100)]);
+    }
+    
     if (isset($res['error'])) {
         http_response_code(400);
         json(['error' => 'Solr Error: ' . ($res['error']['msg'] ?? 'Unknown'), 'params' => $params]);
@@ -253,7 +266,7 @@ function handleSources(string $solrUrl): void
         'facet.limit'    => 1000,
         'wt'             => 'json',
     ];
-    $response = solrRequest($solrUrl . '/select', $params);
+    $response = SolrHelper::request($solrUrl . '/select', $params);
     $data = json_decode($response, true);
     
     $sources = [];
@@ -282,8 +295,13 @@ function handleSchema(string $solrUrl): void
         // Sample docs for THIS source to see its specific columns
         // Use a larger sample (500) to catch all dynamic fields in the CSV
         $q = 'source_file_s:"' . addslashes($source) . '"';
-        $sampleResp = solrGet($solrUrl . '/select?q=' . urlencode($q) . '&rows=500&wt=json');
+        $sampleResp = SolrHelper::get($solrUrl . '/select?q=' . urlencode($q) . '&rows=500&wt=json');
         $sampleData = json_decode($sampleResp, true);
+        
+        if ($sampleData === null) {
+            json(['fields' => [], 'error' => 'Failed to parse Solr schema sample']); return;
+        }
+
         $sampleDocs = $sampleData['response']['docs'] ?? [];
         
         if (empty($sampleDocs)) { json(['fields' => []]); return; }
@@ -305,7 +323,7 @@ function handleSchema(string $solrUrl): void
         }
     } else {
         // Global schema using Luke (fastest/most accurate for full core)
-        $lukeResp = solrGet($solrUrl . '/admin/luke?numTerms=0&wt=json');
+        $lukeResp = SolrHelper::get($solrUrl . '/admin/luke?numTerms=0&wt=json');
         $lukeData = json_decode($lukeResp, true);
         $lukeFields = $lukeData['fields'] ?? [];
 
@@ -325,7 +343,7 @@ function handleSchema(string $solrUrl): void
 
     // Fallback if Luke is somehow restricted
     if (empty($fields)) {
-        $response = solrGet($solrUrl . '/schema/fields?wt=json&indent=false');
+        $response = SolrHelper::get($solrUrl . '/schema/fields?wt=json&indent=false');
         $data = json_decode($response, true);
         foreach (($data['fields'] ?? []) as $field) {
             $name = $field['name'];
@@ -359,7 +377,7 @@ function handleFacets(string $solrUrl): void
     $prefix = $body['prefix'] ?? '';
     $filters = $body['filters'] ?? [];
 
-    $fqs = buildFilterQueries($filters);
+    $fqs = SolrHelper::buildFilterQueries($filters);
 
     if (empty($fields) && empty($pivots)) { json(['facets' => []]); return; }
 
@@ -381,7 +399,7 @@ function handleFacets(string $solrUrl): void
     $cached = cacheGet($cKey);
     if ($cached) { json($cached); return; }
 
-    $response = solrRequest($solrUrl . '/select', $params);
+    $response = SolrHelper::request($solrUrl . '/select', $params);
     $res = json_decode($response, true);
     $out = [];
     if (!empty($res['facet_counts']['facet_fields'])) {
@@ -511,7 +529,7 @@ function handleChartData(string $solrUrl): void
     if (!$xField) { json(['error' => 'xField is required']); return; }
 
     // Build filter queries
-    $fqs = buildFilterQueries($filters);
+    $fqs = SolrHelper::buildFilterQueries($filters);
     if ($source) {
         $fqs[] = 'source_file_s:"' . addslashes($source) . '"';
     }
@@ -540,7 +558,7 @@ function handleChartData(string $solrUrl): void
     $cached = cacheGet($cKey);
     if ($cached) { json(array_merge($cached, ['cached' => true])); return; }
 
-    $response = solrRequest($solrUrl . '/select', $params);
+    $response = SolrHelper::request($solrUrl . '/select', $params);
     $data     = json_decode($response, true);
     $total    = $data['response']['numFound'] ?? 0;
 
@@ -604,7 +622,7 @@ function handleAggregations(string $solrUrl): void
     $filters = $body['filters'] ?? [];
     $source  = $body['source']  ?? null;
 
-    $fqs = buildFilterQueries($filters);
+    $fqs = SolrHelper::buildFilterQueries($filters);
     if ($source) {
         $fqs[] = 'source_file_s:"' . addslashes($source) . '"';
     }
@@ -618,7 +636,7 @@ function handleAggregations(string $solrUrl): void
     if (!empty($fqs)) $params['fq'] = $fqs;
     foreach ($fields as $f) $params['stats.field'][] = $f;
 
-    $response = solrRequest($solrUrl . '/select', $params);
+    $response = SolrHelper::request($solrUrl . '/select', $params);
     $data     = json_decode($response, true);
     $statsFacet = $data['stats']['stats_fields'] ?? [];
 
@@ -675,11 +693,11 @@ function handleExport(string $solrUrl): void
             'sort'       => $sort,
             'cursorMark' => $cursor,
             'fl'         => implode(',', $cols),
-            'fq'         => buildFilterQueries($body['filters'] ?? []),
+            'fq'         => SolrHelper::buildFilterQueries($body['filters'] ?? []),
             'wt'         => 'json'
         ];
 
-        $response = solrRequest($solrUrl . '/select', $params);
+        $response = SolrHelper::request($solrUrl . '/select', $params);
         $res = json_decode($response, true);
         $docs = $res['response']['docs'] ?? [];
         if (empty($docs)) break;
@@ -706,7 +724,7 @@ function handleHealth(string $solrUrl): void
 {
     $solrOk = false;
     try {
-        $r = solrGet($solrUrl . '/admin/ping?wt=json');
+        $r = SolrHelper::get($solrUrl . '/admin/ping?wt=json');
         $d = json_decode($r, true);
         $solrOk = ($d['status'] ?? '') === 'OK';
     } catch (\Throwable $e) {}
@@ -722,117 +740,11 @@ function handleHealth(string $solrUrl): void
 }
 
 // ── Filter Builder ─────────────────────────────────────────────────────────────
-function buildFilterQueries(array $filters): array
-{
-    $fqs = [];
-    foreach ($filters as $filter) {
-        $fq = buildSingleFilter($filter);
-        if ($fq) $fqs[] = $fq;
-    }
-    return $fqs;
-}
+// Redundant Solr helpers removed in favor of SolrHelper
 
-function buildSingleFilter(array $filter): ?string
-{
-    $field = $filter['field'] ?? null;
-    $type  = $filter['type']  ?? 'text';
-    $value = $filter['value'] ?? null;
-    $op    = $filter['op']    ?? 'AND';
-
-    // Nested group: (A AND B) OR C
-    if ($type === 'nested') {
-        $children = $filter['children'] ?? [];
-        $parts    = [];
-        foreach ($children as $child) {
-            $childFq = buildSingleFilter($child);
-            if ($childFq) $parts[] = $childFq;
-        }
-        if (empty($parts)) return null;
-        $groupOp = $filter['groupOp'] ?? $op;
-        return '(' . implode(" $groupOp ", $parts) . ')';
-    }
-
-    if (!$field || ($value === null || $value === '') && !in_array($type, ['range', 'date_range', 'is_null', 'not_null'])) {
-        return null;
-    }
-
-    $isDate = $field && inferType($field) === 'date';
-    $fmtValue = function($v) use ($isDate) {
-        if ($isDate && $v !== '*') return date('Y-m-d\TH:i:s\Z', strtotime($v));
-        return $v;
-    };
-
-    switch ($type) {
-        case 'range':
-            $min = $filter['min'] ?? '*';
-            $max = $filter['max'] ?? '*';
-            if ($min === '' || $min === null) $min = '*';
-            if ($max === '' || $max === null) $max = '*';
-            if ($min === '*' && $max === '*') return null;
-            return "$field:[$min TO $max]";
-
-        case 'date_range':
-            $from = $filter['from'] ?? '*';
-            $to   = $filter['to']   ?? '*';
-            if ($from === '' || $from === null) $from = '*';
-            if ($to   === '' || $to   === null) $to   = '*';
-            if ($from === '*' && $to === '*') return null;
-            if ($from !== '*') $from = date('Y-m-d\T00:00:00\Z', strtotime($from));
-            if ($to   !== '*') $to   = date('Y-m-d\T23:59:59\Z', strtotime($to));
-            return "$field:[$from TO $to]";
-
-        case 'is_null':  return "(*:* -$field:[* TO *])";
-        case 'not_null': return "$field:[* TO *]";
-
-        case 'multi_select':
-        case 'not_in':
-            $vals = is_array($value) ? $value : [$value];
-            if (empty($vals)) return null;
-            $escaped = array_map(fn($v) => '"' . addslashes($v) . '"', $vals);
-            $query = "$field:(" . implode(' OR ', $escaped) . ')';
-            return $type === 'not_in' ? "(*:* -$query)" : $query;
-
-        case 'boolean':
-            return "$field:" . ($value ? 'true' : 'false');
-
-        case 'equals':
-            $v = $fmtValue($value);
-            $isNum = in_array(inferType($field), ['integer', 'float']);
-            if ($isNum || $isDate) return "$field:" . addslashes($v);
-            return "$field:\"" . addslashes($v) . "\"";
-            
-        case 'not_equals':
-            $v = $fmtValue($value);
-            $isNum = in_array(inferType($field), ['integer', 'float']);
-            if ($isNum || $isDate) return "(*:* -$field:" . addslashes($v) . ")";
-            return "(*:* -$field:\"" . addslashes($v) . "\")";
-            
-        case 'gt':
-        case 'after':
-            return "$field:{" . $fmtValue($value) . " TO *]";
-            
-        case 'gte':
-            return "$field:[" . $fmtValue($value) . " TO *]";
-            
-        case 'lt':
-        case 'before':
-            return "$field:[* TO " . $fmtValue($value) . "}";
-            
-        case 'lte':
-            return "$field:[* TO " . $fmtValue($value) . "]";
-
-        case 'starts_with': return "$field:" . addslashes($value) . '*';
-        case 'ends_with':   return "$field:*" . addslashes($value);
-        case 'text':
-        default:
-            return "$field:*" . addslashes($value) . '*';
-    }
-}
-
-// ── Date Compare ───────────────────────────────────────────────────────────────
 function executeDateCompare(string $solrUrl, array $params, array $dateCompare): array
 {
-    $currentResult = json_decode(solrRequest($solrUrl . '/select', $params), true);
+    $currentResult = json_decode(SolrHelper::request($solrUrl . '/select', $params), true);
 
     $compareField = $dateCompare['field'] ?? 'ingested_at_dt';
     $compareType  = $dateCompare['type']  ?? 'previous_period';
@@ -850,7 +762,7 @@ function executeDateCompare(string $solrUrl, array $params, array $dateCompare):
 
     $compareParams        = $params;
     $compareParams['fq'][] = "$compareField:[$cFrom TO $cTo]";
-    $compareResult = json_decode(solrRequest($solrUrl . '/select', $compareParams), true);
+    $compareResult = json_decode(SolrHelper::request($solrUrl . '/select', $compareParams), true);
 
     $currentTotal = $currentResult['response']['numFound'] ?? 0;
     $compareTotal = $compareResult['response']['numFound'] ?? 0;
@@ -862,53 +774,6 @@ function executeDateCompare(string $solrUrl, array $params, array $dateCompare):
         'compare'    => ['total' => $compareTotal,  'docs' => $compareResult['response']['docs'] ?? []],
         'difference' => ['absolute' => $absDiff, 'percentage' => $pctChange],
     ];
-}
-
-// ── Solr Helpers ───────────────────────────────────────────────────────────────
-function solrRequest(string $url, array $params): string
-{
-    $qs = [];
-    foreach ($params as $k => $v) {
-        if (is_array($v)) {
-            foreach ($v as $val) {
-                $qs[] = urlencode($k) . '=' . rawurlencode((string)$val);
-            }
-        } else {
-            $qs[] = urlencode($k) . '=' . rawurlencode((string)$v);
-        }
-    }
-    $ch = curl_init();
-    curl_setopt_array($ch, [
-        CURLOPT_URL            => $url,
-        CURLOPT_POST           => true,
-        CURLOPT_POSTFIELDS     => implode('&', $qs),
-        CURLOPT_HTTPHEADER     => ['Content-Type: application/x-www-form-urlencoded'],
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT        => 30,
-    ]);
-    $resp = curl_exec($ch);
-    $err  = curl_error($ch);
-    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-    
-    if ($err) throw new \RuntimeException("cURL: $err");
-    
-    // If Solr returns an error (4xx/5xx), return the response so we can parse the error message
-    // but the caller (handleQuery) should check the status or the content.
-    return $resp;
-}
-
-function solrGet(string $url): string
-{
-    $ch = curl_init();
-    curl_setopt_array($ch, [
-        CURLOPT_URL            => $url,
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT        => 10,
-    ]);
-    $resp = curl_exec($ch);
-    curl_close($ch);
-    return $resp ?: '';
 }
 
 // ── Utils ──────────────────────────────────────────────────────────────────────

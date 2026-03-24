@@ -1,0 +1,3 @@
+# Run the scheduler every minute
+* * * * * php /app/api/scheduler.php >> /var/log/cron.log 2>&1
+# Extra line for cron

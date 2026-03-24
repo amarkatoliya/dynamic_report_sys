@@ -188,7 +188,7 @@ services:
       - php_vendor:/app/vendor
       - ./sample-data:/app/csv
     working_dir: /app
-    command: ["php", "-d", "memory_limit=512M", "-S", "0.0.0.0:8000", "-t", "/app/api"]
+    command: php -d memory_limit=512M -S 0.0.0.0:8000 -t /app/api /app/api/index.php
     ports:
       - "8000:8000"
     environment:
@@ -199,6 +199,32 @@ services:
       REDIS_HOST: "redis"
       REDIS_PORT: "6379"
       CACHE_TTL: "60"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ──────────────────────────────────────────
+  #  REPORT SCHEDULER (Processes cron)
+  # ──────────────────────────────────────────
+  scheduler:
+    build:
+      context: ./kafka
+      dockerfile: Dockerfile
+    container_name: php-scheduler
+    restart: always
+    depends_on:
+      php:
+        condition: service_healthy
+    volumes:
+      - ./kafka:/app
+      - php_vendor:/app/vendor
+    working_dir: /app
+    command: ["sh", "-c", "echo 'Scheduler started...'; while true; do php api/scheduler.php; sleep 60; done"]
+    environment:
+      SOLR_URL: "http://solr:8983/solr/csvcore"
 
   # ──────────────────────────────────────────
   #  KAFKA CONSUMER
