@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { useStore } from '../store'
-import { Lock, User, AlertCircle, Loader2 } from 'lucide-react'
+import { Lock, User, AlertCircle, Loader2, ArrowRight } from 'lucide-react'
+import './Login.css'
 
 export default function Login() {
   const login = useStore(s => s.login)
@@ -18,7 +19,7 @@ export default function Login() {
     try {
       await login(username, password)
     } catch (e) {
-      setError(e.message || 'Login failed. Please check your credentials.')
+      setError(e.message || 'Verification failed. Please check your credentials.')
     } finally {
       setLoading(false)
     }
@@ -26,25 +27,27 @@ export default function Login() {
 
   return (
     <div className="login-page">
-      <div className="login-card">
+      <div className="login-card animate-in">
         <div className="login-header">
-          <div className="login-logo">◈</div>
+          <div className="login-logo-container">
+            <div className="login-logo-icon">◈</div>
+          </div>
           <h1>DataSheet</h1>
-          <p>Reporting & Analytics Platform</p>
+          <p>Secure Intelligence Platform</p>
         </div>
 
         <form className="login-form" onSubmit={handleSubmit}>
           {error && (
-            <div className="login-error">
-              <AlertCircle size={16} />
+            <div className="login-error-msg">
+              <AlertCircle size={18} />
               <span>{error}</span>
             </div>
           )}
 
-          <div className="login-field">
+          <div className="login-input-group">
             <label htmlFor="username">Username</label>
-            <div className="login-input-wrap">
-              <User size={18} className="login-icon" />
+            <div className="login-input-wrapper">
+              <User size={18} className="login-input-icon" />
               <input
                 id="username"
                 type="text"
@@ -52,34 +55,43 @@ export default function Login() {
                 value={username}
                 onChange={e => setUsername(e.target.value)}
                 autoFocus
+                required
               />
             </div>
           </div>
 
-          <div className="login-field">
+          <div className="login-input-group">
             <label htmlFor="password">Password</label>
-            <div className="login-input-wrap">
-              <Lock size={18} className="login-icon" />
+            <div className="login-input-wrapper">
+              <Lock size={18} className="login-input-icon" />
               <input
                 id="password"
                 type="password"
-                placeholder="Enter password"
+                placeholder="••••••••"
                 value={password}
                 onChange={e => setPassword(e.target.value)}
+                required
               />
             </div>
           </div>
 
-          <button className="login-submit" type="submit" disabled={loading}>
-            {loading ? <Loader2 size={18} className="animate-spin" /> : 'Sign In'}
+          <button className="login-submit-btn" type="submit" disabled={loading}>
+            {loading ? (
+              <Loader2 size={20} className="animate-spin" />
+            ) : (
+              <>
+                <span>Sign In</span>
+                <ArrowRight size={18} />
+              </>
+            )}
           </button>
         </form>
 
         <div className="login-footer">
-          <p>© 2026 Reporting System Audit</p>
-          <div className="login-help">
-            <span>Admin: admin / password123</span>
-            <span>Viewer: viewer / viewer123</span>
+          <p className="login-copyright">© 2026 Analytics Intelligence Cluster</p>
+          <div className="login-credentials-tips">
+            <div className="credential-badge">admin / password123</div>
+            <div className="credential-badge">viewer / viewer123</div>
           </div>
         </div>
       </div>

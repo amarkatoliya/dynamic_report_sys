@@ -86,7 +86,7 @@ export const useStore = create((set, get) => {
     schema: [],
     schemaLoading: false,
     sources: [],
-    selectedSource: 'AF.csv',
+    selectedSource: '',
 
     fetchSources: async () => {
       try {
@@ -299,6 +299,18 @@ export const useStore = create((set, get) => {
           field: 'source_file_s',
           type: 'equals',
           value: s.selectedSource,
+          op: 'AND'
+        })
+      }
+
+      // ── Global Date Filter (Part 3.2 Addon) ──
+      // Only add if user manually selected a field and a range (no defaults)
+      if (s.dateField && (s.dateRange.from || s.dateRange.to)) {
+        body.filters.push({
+          field: s.dateField,
+          type: 'date_range',
+          from: s.dateRange.from,
+          to: s.dateRange.to,
           op: 'AND'
         })
       }

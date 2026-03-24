@@ -69,5 +69,54 @@
         "created_at": "2026-03-23T08:08:51+00:00",
         "is_default": false,
         "version": 1
+    },
+    {
+        "id": "view_69c23fbab15ba",
+        "userId": "u2",
+        "name": "price less than 25 in cym",
+        "columns": [
+            "product_id_i",
+            "parent_sku_s",
+            "Product_Name_s",
+            "Price_f",
+            "Type_s",
+            "Brand_Name_s",
+            "CYM_SKU_s",
+            "CYM_URL_s",
+            "CYM_PRICE_f",
+            "CYM_Name_s",
+            "Quantity_i",
+            "Date_dt",
+            "Stock_s",
+            "Last_Price_Change_dt",
+            "Extracted_URL_s",
+            "Image_URL_s",
+            "ingested_at_dt",
+            "Price_i",
+            "Map_Price_i",
+            "Map_Price_f",
+            "CYM_PRICE_i",
+            "MAP_Violation_s",
+            "MAP_Violation_Date_Time_dt",
+            "MAP_Violation_Screenshot_s",
+            "MAP_Violation_Screenshot_Date_Time_dt",
+            "CYM_SKU_i"
+        ],
+        "filters": [
+            {
+                "field": "Price_f",
+                "type": "lt",
+                "value": "25",
+                "op": "AND",
+                "min": "",
+                "max": "",
+                "from": "",
+                "to": ""
+            }
+        ],
+        "sort": "score desc",
+        "created_at": "2026-03-24T07:39:38+00:00",
+        "is_default": false,
+        "version": 1
     }
 ]

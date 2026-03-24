@@ -19,7 +19,7 @@ export default function App() {
     globalSearch, setGlobalSearch,
     timing, cached,
     sources, selectedSource, setSource,
-    user, logout
+    user, logout, query
   } = useStore()
 
   useEffect(() => {
@@ -27,7 +27,7 @@ export default function App() {
       fetchSources()
       fetchViews()
       fetchSchema()
-      // query() // Removed as per instruction, assuming query is now handled differently or not needed here
+      query()
     }
   }, [token])
 

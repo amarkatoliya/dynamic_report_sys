@@ -207,6 +207,14 @@ function handleQuery(string $solrUrl): void
     $cached = cacheGet($cKey);
     if ($cached) { json($cached); return; }
 
+    // ── Date Comparison (Part 3.2 Addon) ──
+    if (!empty($body['dateCompare']) && !empty($body['dateCompare']['field']) && !empty($body['dateCompare']['from'])) {
+        $result = executeDateCompare($solrUrl, $params, $body['dateCompare']);
+        cacheSet($cKey, $result, $cacheTtl);
+        json($result);
+        return;
+    }
+
     $response = solrRequest($solrUrl . '/select', $params);
     error_log("Solr Query: " . $solrUrl . "/select?" . http_build_query($params));
     AuditLogger::log('QUERY_EXECUTED', $user['username'], 'SUCCESS', ['search' => $body['search'] ?? '*:*']);
